@@ -308,17 +308,108 @@ addOnly.click({ 'data-act': 'import' });
 addOnly.setPaste('第2138回 2026/9/17 09 16 21 26 38 40 12 0 該当なし 2億円');
 addOnly.click({ 'data-act': 'import' });
 has('前に入れた回が消えない', addOnly.text(), '保有データ（2件）');
-addOnly.setPaste('第2139回 2026/9/21 03 06 23 34 36 43 29 1 4億5,134万円 0円');
+check('読込・新規・重複の件数を伝える',
+  /1件読込 ／ 1件新規追加/.test(addOnly.calls.join(' ')), true);
+addOnly.setPaste([
+  '第2139回 2026/9/21 03 06 23 34 36 43 29 1 4億5,134万円 0円',
+  '第2138回 2026/9/17 09 16 21 26 38 40 12 0 該当なし 2億円',
+  '第2137回 2026/9/14 04 08 10 25 28 33 09 2 3億7,014万円 0円'
+].join('\n'));
 addOnly.click({ 'data-act': 'import' });
-has('同じ回は重複しない', addOnly.text(), '保有データ（2件）');
+has('同じ回は重複しない', addOnly.text(), '保有データ（3件）');
+check('重複の件数も伝える',
+  /3件読込 ／ 1件新規追加 ／ 2件取込済（重複）/.test(addOnly.calls.join(' ')), true);
 
 console.log('予想の作り方の説明');
 var ex = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: SAMPLE, loto7: [] } } });
 ex.click({ 'data-act': 'tab', 'data-t': 'pred' });
 var exText = ex.text();
-has('重みの式を示す', exText, 'c ＋ 0.9');
-has('バランスの誤解を解く', exText, 'ホットとコールドを混ぜる、という意味の「バランス」ではありません');
+has('帯の分け方を説明する', exText, '数字を3つの帯に分ける');
+has('帯が混ざることを説明する', exText, '加熱帯だけで揃うわけではなく');
+has('帯の中は等確率だと明記', exText, '等確率');
 has('確率は上がらないと明記', exText, 'この操作で当せん確率は上がりません');
+
+console.log('頻度帯（利用者提供の実データ8回分で確認）');
+/*
+ * 第2139回〜第2130回のロト6当せん番号（利用者が画面から取り込んだもの）。
+ * 8回 × 6個 ＝ 48個。期待値 8×6÷43 ＝ 1.116回、標準偏差 0.98回 なので、
+ * 境目は 1.606回 と 0.626回。つまり 2回以上が加熱帯、1回が標準帯、0回が低頻度帯になる。
+ */
+var REAL8 = [
+  { no: 2139, date: '2026-09-21', main: [3, 6, 23, 34, 36, 43], bonus: [29] },
+  { no: 2138, date: '2026-09-17', main: [9, 16, 21, 26, 38, 40], bonus: [12] },
+  { no: 2137, date: '2026-09-14', main: [4, 8, 10, 25, 28, 33], bonus: [9] },
+  { no: 2136, date: '2026-09-10', main: [6, 7, 33, 37, 41, 43], bonus: [42] },
+  { no: 2135, date: '2026-09-07', main: [7, 13, 32, 34, 37, 39], bonus: [41] },
+  { no: 2134, date: '2026-09-03', main: [5, 9, 10, 19, 26, 35], bonus: [18] },
+  { no: 2133, date: '2026-08-31', main: [1, 11, 14, 20, 29, 38], bonus: [27] },
+  { no: 2130, date: '2026-08-20', main: [12, 18, 35, 40, 41, 43], bonus: [3] }
+];
+var bd = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: REAL8, loto7: [] } } });
+bd.click({ 'data-act': 'tab', 'data-t': 'freq' });
+var bdText = bd.text();
+has('加熱帯の個数（2回以上の13個）', bdText, '加熱帯（13個）');
+has('標準帯の個数（1回の21個）', bdText, '標準帯（21個）');
+has('低頻度帯の個数（0回の9個）', bdText, '低頻度帯（9個）');
+check('3つの帯で全数字を覆う', 13 + 21 + 9, 43);
+
+bd.click({ 'data-act': 'tab', 'data-t': 'cond' });
+var compText = bd.text();
+has('第2139回の構成（加熱3・標準3・低0）が数えられている', compText, '3個|3個|0個');
+has('帯の組み合わせを表示', compText, '頻度帯の組み合わせ');
+
+console.log('帯の構成どおりに選ぶこと');
+var bp = boot({ saved: { game: 'loto6', windowSize: 24, predictCount: 10, bandMode: 'manual',
+  bandHot: 2, bandMid: 3, bandCold: 1, useCarry: false, useConsec: false,
+  useTail: false, useSum: false, useOdd: false, data: { loto6: REAL8, loto7: [] } } });
+bp.click({ 'data-act': 'tab', 'data-t': 'pred' });
+bp.click({ 'data-act': 'gen' });
+var bpHtml = bp.html();
+var bands = bpHtml.match(/加熱 (\d+)個 ／ 標準 (\d+)個 ／ 低頻度 (\d+)個/g) || [];
+check('10口すべてに帯の内訳が出る', bands.length, 10);
+var allMatch = true;
+for (var z = 0; z < bands.length; z++) {
+  if (bands[z] !== '加熱 2個 ／ 標準 3個 ／ 低頻度 1個') { allMatch = false; }
+}
+check('指定した 加熱2・標準3・低頻度1 のとおりに選ばれる', allMatch, true);
+
+var bad = boot({ saved: { game: 'loto6', windowSize: 24, bandMode: 'manual',
+  bandHot: 6, bandMid: 6, bandCold: 6, data: { loto6: REAL8, loto7: [] } } });
+bad.click({ 'data-act': 'tab', 'data-t': 'pred' });
+bad.click({ 'data-act': 'gen' });
+has('合計が合わないときは理由を出す', bad.text(), '合計を6個にしてください');
+
+var auto = boot({ saved: { game: 'loto6', windowSize: 24, predictCount: 5,
+  data: { loto6: REAL8, loto7: [] } } });
+auto.click({ 'data-act': 'tab', 'data-t': 'pred' });
+auto.click({ 'data-act': 'gen' });
+var autoBands = auto.html().match(/加熱 (\d+)個 ／ 標準 (\d+)個 ／ 低頻度 (\d+)個/g) || [];
+check('自動でも5口生成する', autoBands.length, 5);
+var inPast = true;
+var pastKeys = {};
+for (var r2 = 0; r2 < REAL8.length; r2++) {
+  var hot = 0, mid = 0, cold = 0;
+  for (var n2 = 0; n2 < REAL8[r2].main.length; n2++) {
+    var cnt = 0;
+    for (var r3 = 0; r3 < REAL8.length; r3++) {
+      if (REAL8[r3].main.indexOf(REAL8[r2].main[n2]) >= 0) { cnt += 1; }
+    }
+    if (cnt >= 2) { hot += 1; } else if (cnt === 1) { mid += 1; } else { cold += 1; }
+  }
+  pastKeys['加熱 ' + hot + '個 ／ 標準 ' + mid + '個 ／ 低頻度 ' + cold + '個'] = 1;
+}
+for (var a2 = 0; a2 < autoBands.length; a2++) {
+  if (!pastKeys[autoBands[a2]]) { inPast = false; }
+}
+check('自動のときは過去に実際にあった構成だけを使う', inPast, true);
+
+console.log('表現の見直し');
+var wording = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: REAL8, loto7: [] } } });
+wording.click({ 'data-act': 'tab', 'data-t': 'info' });
+var wText = wording.text();
+check('「安定します」を使っていない', wText.indexOf('安定') < 0, true);
+check('「既定24回」を使っていない', wText.indexOf('既定24回') < 0, true);
+has('集計する回数を増やしても当たりやすさは変わらないと書く', wText, '集計する回数を増やしても次回の当たりやすさは変わりません');
 
 console.log('廃止した機能が残っていないこと');
 var gone = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
@@ -326,6 +417,7 @@ var goneHtml = gone.html();
 check('保存済みJSONの読み込み欄が無い', goneHtml.indexOf('remoteBase') < 0, true);
 check('手入力の欄が無い', goneHtml.indexOf('manual-add') < 0, true);
 check('置き換えボタンが無い', goneHtml.indexOf('import-replace') < 0, true);
+check('ダミーデータ生成が無い', goneHtml.indexOf('data-act="demo"') < 0, true);
 check('取り込みボタンはある', goneHtml.indexOf('data-act="import"') >= 0, true);
 check('通信しない', gone.calls.length, 0);
 

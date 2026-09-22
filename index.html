@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.30';
+  var APP_VERSION = '1.40';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -324,7 +324,10 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     carryWithBonus: false,
     freqTarget: 'main',
     freqSort: 'num',
-    predictMode: 'balance',
+    bandMode: 'auto',
+    bandHot: 2,
+    bandMid: 3,
+    bandCold: 1,
     predictCount: 5,
     useCarry: true,
     useConsec: true,
@@ -369,7 +372,10 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
         carryWithBonus: state.carryWithBonus,
         freqTarget: state.freqTarget,
         freqSort: state.freqSort,
-        predictMode: state.predictMode,
+        bandMode: state.bandMode,
+        bandHot: state.bandHot,
+        bandMid: state.bandMid,
+        bandCold: state.bandCold,
         predictCount: state.predictCount,
         useCarry: state.useCarry,
         useConsec: state.useConsec,
@@ -389,7 +395,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       var o = JSON.parse(raw);
       if (!o || typeof o !== 'object') { return; }
       var keys = ['game', 'windowSize', 'carryWithBonus', 'freqTarget', 'freqSort',
-        'predictMode', 'predictCount', 'useCarry', 'useConsec', 'useTail',
+        'bandMode', 'bandHot', 'bandMid', 'bandCold',
+        'predictCount', 'useCarry', 'useConsec', 'useTail',
         'useSum', 'useOdd', 'pasteOrder'];
       for (var i = 0; i < keys.length; i++) {
         if (typeof o[keys[i]] !== 'undefined') { state[keys[i]] = o[keys[i]]; }
@@ -589,8 +596,10 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     pasteText = '';
     save();
     render();
-    var msg = r.draws.length + '件を読み取り、' + added + '件を追加しました（保有 ' + merged.length + '件）。';
-    if (usedBlocks) { msg = 'ページをコピーした形式として読み取りました。\n' + msg; }
+    var dup = r.draws.length - added;
+    var msg = r.draws.length + '件読込 ／ ' + added + '件新規追加';
+    if (dup > 0) { msg += ' ／ ' + dup + '件取込済（重複）'; }
+    msg += '\n保有 ' + merged.length + '件';
     if (r.errors.length) { msg += '\n読み飛ばし ' + r.errors.length + '行:\n' + r.errors.slice(0, 5).join('\n'); }
     alert(msg);
   }
@@ -830,7 +839,6 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     h += '<div style="margin-top:10px">';
     h += '<button class="btn gray" data-act="export-json">JSON書き出し</button>';
     h += '<button class="btn gray" data-act="export-csv">CSV書き出し</button>';
-    h += '<button class="btn gray" data-act="demo">ダミーデータ生成</button>';
     h += '<button class="btn danger" data-act="clear">全消去</button>';
     h += '</div>';
     h += '</div>';
@@ -885,6 +893,15 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     }
     h += '</div>';
     h += '<p class="note">「出現回数N回 : M個」＝ ' + win.length + '回中にN回出た数字がM個、という読み方です。個数の合計は' + game.max + '個（全数字）になります。</p>';
+
+    h += '<h3 class="sub">頻度帯の内訳</h3>';
+    var biF = bandInfo(win, game);
+    h += bandSummary(biF, game);
+    for (var bb = 0; bb < BANDS.length; bb++) {
+      h += '<p class="note" style="margin-top:8px">' + BANDS[bb].label + '（' + biF.groups[BANDS[bb].key].length + '個）</p>';
+      h += '<div class="chips">' + bandChips(biF, BANDS[bb].key) + '</div>';
+    }
+    h += '<p class="note">帯の判定は本数字の出現回数だけで行います（ボーナス数字は含めません）。予想タブでこの帯を使います。</p>';
 
     h += '<h3 class="sub">数字別一覧</h3>';
     h += '<div class="inline"><select data-set="freqSort">'
@@ -989,6 +1006,18 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     h += '<div><b>' + fx(c.oddAvg, 2) + '</b><span>奇数の平均個数</span></div>';
     h += '</div>';
 
+    h += '<h3 class="sub">頻度帯の組み合わせ</h3>';
+    var biC = bandInfo(win, game);
+    var compC = bandComposition(win, biC);
+    h += '<p class="note">各回の本数字が、加熱帯・標準帯・低頻度帯から何個ずつ出ていたかです。予想タブはこの実績から構成を抽せんします。</p>';
+    h += '<table class="tb"><thead><tr><th class="l">加熱</th><th class="l">標準</th><th class="l">低頻度</th><th>回数</th><th>割合</th></tr></thead><tbody>';
+    for (var cc = 0; cc < compC.length; cc++) {
+      h += '<tr><td class="l">' + compC[cc].hot + '個</td><td class="l">' + compC[cc].mid + '個</td>'
+        + '<td class="l">' + compC[cc].cold + '個</td><td>' + compC[cc].count + '回</td>'
+        + '<td>' + fx(rate(compC[cc].count, c.n), 1) + '%</td></tr>';
+    }
+    h += '</tbody></table>';
+
     h += '<h3 class="sub">回別の明細</h3>';
     h += '<div class="scroll"><table class="tb"><thead><tr><th class="l">回</th><th class="l">本数字</th><th>引っ張り</th><th>連続</th><th>末尾</th><th>合計</th><th>奇</th></tr></thead><tbody>';
     for (var r = 0; r < c.rows.length; r++) {
@@ -1019,42 +1048,93 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     return Number(keys[keys.length - 1]);
   }
 
-  function buildWeights(counts, game, mode) {
-    var w = [0];
-    for (var n = 1; n <= game.max; n++) {
-      var c = counts[n];
-      var v;
-      if (mode === 'hot') { v = Math.pow(c + 0.6, 2.2); }
-      else if (mode === 'cold') { v = 1 / Math.pow(c + 0.7, 1.6); }
-      else if (mode === 'flat') { v = 1; }
-      else { v = c + 0.9; }
-      w.push(v);
+  var BANDS = [
+    { key: 'hot', label: '加熱帯' },
+    { key: 'mid', label: '標準帯' },
+    { key: 'cold', label: '低頻度帯' }
+  ];
+
+  /*
+   * 対象期間の本数字の出現回数から、数字を3つの帯に分けます。
+   * 境目は理論期待値 ± 標準偏差の半分。
+   * 期待値 = 対象回数 × 本数字の個数 ÷ 数字の総数
+   */
+  function bandInfo(win, game) {
+    var counts = calcFreq(win, game).main;
+    var n = win.length;
+    var p = game.main / game.max;
+    var e = n * p;
+    var sd = Math.sqrt(n * p * (1 - p));
+    var hi = e + sd * 0.5;
+    var lo = e - sd * 0.5;
+    var band = [];
+    var groups = { hot: [], mid: [], cold: [] };
+    for (var i = 0; i <= game.max; i++) { band.push(null); }
+    for (i = 1; i <= game.max; i++) {
+      var c = counts[i];
+      var b = c > hi ? 'hot' : (c < lo ? 'cold' : 'mid');
+      band[i] = b;
+      groups[b].push(i);
     }
-    return w;
+    return { counts: counts, n: n, e: e, sd: sd, hi: hi, lo: lo, band: band, groups: groups };
   }
 
-  function pickWeighted(weights, count, game) {
-    var pool = [];
-    var wt = [];
-    for (var n = 1; n <= game.max; n++) { pool.push(n); wt.push(weights[n]); }
+  function bandPattern(nums, bi) {
+    var p = { hot: 0, mid: 0, cold: 0 };
+    for (var i = 0; i < nums.length; i++) {
+      var b = bi.band[nums[i]];
+      if (b) { p[b] += 1; }
+    }
+    return p;
+  }
+
+  function patternKey(p) { return p.hot + '-' + p.mid + '-' + p.cold; }
+
+  /* 対象期間の各回が、どの帯から何個ずつ出ていたかを数えます */
+  function bandComposition(win, bi) {
+    var map = {};
+    for (var i = 0; i < win.length; i++) {
+      var p = bandPattern(win[i].main, bi);
+      var k = patternKey(p);
+      if (!map[k]) { map[k] = { hot: p.hot, mid: p.mid, cold: p.cold, count: 0 }; }
+      map[k].count += 1;
+    }
+    var list = Object.keys(map).map(function (k) { return map[k]; });
+    list.sort(function (a, b) { return b.count - a.count || b.hot - a.hot; });
+    return list;
+  }
+
+  function sampleComposition(list) {
+    var total = 0;
+    var i;
+    for (i = 0; i < list.length; i++) { total += list[i].count; }
+    if (total <= 0) { return null; }
+    var r = Math.random() * total;
+    for (i = 0; i < list.length; i++) {
+      r -= list[i].count;
+      if (r < 0) { return list[i]; }
+    }
+    return list[list.length - 1];
+  }
+
+  /* 指定された帯の構成どおりに、帯の中から等確率で数字を選びます */
+  function pickByBands(bi, target) {
     var out = [];
-    for (var k = 0; k < count; k++) {
-      var total = sum(wt);
-      if (total <= 0) { break; }
-      var r = Math.random() * total;
-      var idx = pool.length - 1;
-      for (var i = 0; i < pool.length; i++) {
-        r -= wt[i];
-        if (r < 0) { idx = i; break; }
+    for (var b = 0; b < BANDS.length; b++) {
+      var key = BANDS[b].key;
+      var need = target[key];
+      var pool = bi.groups[key].slice();
+      if (pool.length < need) { return null; }
+      for (var k = 0; k < need; k++) {
+        var idx = Math.floor(Math.random() * pool.length);
+        out.push(pool[idx]);
+        pool.splice(idx, 1);
       }
-      out.push(pool[idx]);
-      pool.splice(idx, 1);
-      wt.splice(idx, 1);
     }
     return out.sort(asc);
   }
 
-  function evalSet(s, prevSet) {
+  function evalSet(s, prevSet, bi) {
     var runs = runsOf(s).filter(function (r) { return r.length >= 2; });
     var maxRun = 0;
     for (var i = 0; i < runs.length; i++) { maxRun = Math.max(maxRun, runs[i].length); }
@@ -1063,7 +1143,10 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     for (var j = 0; j < s.length; j++) { if (prevSet[s[j]] === 1) { carry += 1; } }
     var odd = 0;
     for (var k = 0; k < s.length; k++) { if (s[k] % 2 === 1) { odd += 1; } }
-    return { runs: runs, maxRun: maxRun, tails: tg, carry: carry, odd: odd, sum: sum(s) };
+    return {
+      runs: runs, maxRun: maxRun, tails: tg, carry: carry, odd: odd,
+      sum: sum(s), bands: bandPattern(s, bi)
+    };
   }
 
   function generatePicks() {
@@ -1071,8 +1154,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var win = windowDraws();
     if (win.length < 2) { return null; }
     var c = calcConditions();
-    var f = calcFreq(win, game);
-    var weights = buildWeights(f.all, game, state.predictMode);
+    var bi = bandInfo(win, game);
+    var comp = bandComposition(win, bi);
     var prev = draws()[0];
     var prevSet = {};
     var i;
@@ -1080,6 +1163,25 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     if (state.carryWithBonus) {
       for (i = 0; i < prev.bonus.length; i++) { prevSet[prev.bonus[i]] = 1; }
     }
+
+    var manual = null;
+    if (state.bandMode === 'manual') {
+      manual = { hot: state.bandHot, mid: state.bandMid, cold: state.bandCold };
+      if (manual.hot + manual.mid + manual.cold !== game.main) {
+        return { error: '帯ごとの個数の合計を' + game.main + '個にしてください。', bi: bi, comp: comp };
+      }
+      for (var b = 0; b < BANDS.length; b++) {
+        var key = BANDS[b].key;
+        if (manual[key] > bi.groups[key].length) {
+          return {
+            error: BANDS[b].label + 'は' + bi.groups[key].length + '個しかないので、'
+              + manual[key] + '個は選べません。',
+            bi: bi, comp: comp
+          };
+        }
+      }
+    }
+
     var pConsec = rate(c.consecAny, c.n) / 100;
     var pTail = rate(c.tailAny, c.n) / 100;
     var sumLo = Math.floor(c.sumMin - (c.sumMax - c.sumMin) * 0.08);
@@ -1091,6 +1193,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var guardAll = 0;
     while (results.length < state.predictCount && guardAll < 40) {
       guardAll += 1;
+      var target = manual || sampleComposition(comp);
+      if (!target) { break; }
       var targetCarry = state.useCarry ? sampleDist(c.carryDist, 1) : null;
       var needConsec = state.useConsec ? (Math.random() < pConsec) : null;
       var needTail = state.useTail ? (Math.random() < pTail) : null;
@@ -1098,16 +1202,17 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       var found = null;
       while (relax <= 5 && !found) {
         for (var t = 0; t < 2500; t++) {
-          var s = pickWeighted(weights, game.main, game);
-          var ev = evalSet(s, prevSet);
+          var s = pickByBands(bi, target);
+          if (!s) { break; }
+          var ev = evalSet(s, prevSet, bi);
           if (relax < 5 && state.useSum && (ev.sum < sumLo || ev.sum > sumHi)) { continue; }
           if (relax < 4 && state.useOdd && (ev.odd < c.oddMin || ev.odd > c.oddMax)) { continue; }
           if (relax < 3 && needTail !== null && (ev.tails.length > 0) !== needTail) { continue; }
           if (relax < 2 && needConsec !== null && (ev.maxRun >= 2) !== needConsec) { continue; }
           if (relax < 1 && targetCarry !== null && ev.carry !== targetCarry) { continue; }
-          var key = s.join('-');
-          if (seen[key]) { continue; }
-          found = { nums: s, ev: ev, relax: relax };
+          var key2 = s.join('-');
+          if (seen[key2]) { continue; }
+          found = { nums: s, ev: ev, relax: relax, target: target };
           break;
         }
         if (!found) { relax += 1; }
@@ -1117,7 +1222,36 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       seen[found.nums.join('-')] = 1;
       results.push(found);
     }
-    return { picks: results, cond: c, prev: prev, relaxed: relaxedAny, sumLo: sumLo, sumHi: sumHi, pConsec: pConsec, pTail: pTail };
+    return {
+      picks: results, cond: c, prev: prev, relaxed: relaxedAny,
+      sumLo: sumLo, sumHi: sumHi, pConsec: pConsec, pTail: pTail,
+      bi: bi, comp: comp
+    };
+  }
+
+  function bandChips(bi, key) {
+    var nums = bi.groups[key];
+    if (nums.length === 0) { return '<span class="muted" style="font-size:12px">なし</span>'; }
+    var cls = key === 'hot' ? 'h4' : (key === 'mid' ? 'h2' : 'h0');
+    return chips(nums, cls);
+  }
+
+  function bandSummary(bi, game) {
+    var h = '<table class="tb"><thead><tr><th class="l">帯</th><th class="l">出現回数</th><th>個数</th></tr></thead><tbody>';
+    var ranges = {
+      hot: fx(bi.hi, 1) + '回 より多い',
+      mid: fx(bi.lo, 1) + '回 〜 ' + fx(bi.hi, 1) + '回',
+      cold: fx(bi.lo, 1) + '回 より少ない'
+    };
+    for (var b = 0; b < BANDS.length; b++) {
+      var k = BANDS[b].key;
+      h += '<tr><td class="l">' + BANDS[b].label + '</td><td class="l">' + ranges[k] + '</td>'
+        + '<td>' + bi.groups[k].length + '個</td></tr>';
+    }
+    h += '</tbody></table>';
+    h += '<p class="note">対象' + bi.n + '回での本数字の出現回数を、理論期待値 ' + fx(bi.e, 2)
+      + '回 を中心に3つに分けています（境目は標準偏差 ' + fx(bi.sd, 2) + '回 の半分）。</p>';
+    return h;
   }
 
   function viewPred() {
@@ -1125,24 +1259,59 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var win = windowDraws();
     var h = demoBanner();
     h += '<div class="card">';
-    h += '<h2 class="sec">◎ 統計ベースの予想（' + game.label + '）</h2>';
+    h += '<h2 class="sec">◎ 頻度帯による予想（' + game.label + '）</h2>';
     if (win.length < 2) {
       h += '<div class="empty">予想には2回分以上のデータが必要です。</div></div>';
       return h;
     }
+    var bi = bandInfo(win, game);
+    var comp = bandComposition(win, bi);
+
+    h += '<h3 class="sub">いまの頻度帯</h3>';
+    h += bandSummary(bi, game);
+    for (var b = 0; b < BANDS.length; b++) {
+      h += '<p class="note" style="margin-top:8px">' + BANDS[b].label + '</p>';
+      h += '<div class="chips">' + bandChips(bi, BANDS[b].key) + '</div>';
+    }
+
+    h += '<h3 class="sub">帯ごとの個数をどう決めるか</h3>';
+    h += '<select data-set="bandMode">'
+      + '<option value="auto"' + (state.bandMode === 'auto' ? ' selected' : '') + '>過去の構成どおりに抽せんする</option>'
+      + '<option value="manual"' + (state.bandMode === 'manual' ? ' selected' : '') + '>自分で個数を決める</option>'
+      + '</select>';
+    if (state.bandMode === 'manual') {
+      var total = state.bandHot + state.bandMid + state.bandCold;
+      h += '<div class="row2" style="margin-top:8px">';
+      var keys = ['bandHot', 'bandMid', 'bandCold'];
+      for (var m = 0; m < BANDS.length; m++) {
+        h += '<div><label class="fld">' + BANDS[m].label + '</label><select data-set="' + keys[m] + '">';
+        for (var v = 0; v <= game.main; v++) {
+          h += '<option value="' + v + '"' + (state[keys[m]] === v ? ' selected' : '') + '>' + v + '個</option>';
+        }
+        h += '</select></div>';
+      }
+      h += '</div>';
+      h += '<p class="note"' + (total === game.main ? '' : ' style="color:#b91c1c"') + '>合計 ' + total
+        + '個 / ' + game.main + '個' + (total === game.main ? '' : '（合計を' + game.main + '個にしてください）') + '</p>';
+    } else {
+      h += '<p class="note">対象' + win.length + '回で実際にあった組み合わせの中から、出現した回数の多いものほど選ばれやすい形で抽せんします。下の表がその内訳です。</p>';
+      h += '<table class="tb"><thead><tr><th class="l">加熱</th><th class="l">標準</th><th class="l">低頻度</th><th>回数</th><th>割合</th></tr></thead><tbody>';
+      for (var q = 0; q < comp.length; q++) {
+        h += '<tr><td class="l">' + comp[q].hot + '個</td><td class="l">' + comp[q].mid + '個</td>'
+          + '<td class="l">' + comp[q].cold + '個</td><td>' + comp[q].count + '回</td>'
+          + '<td>' + fx(rate(comp[q].count, win.length), 1) + '%</td></tr>';
+      }
+      h += '</tbody></table>';
+    }
+
+    h += '<h3 class="sub">その他の設定</h3>';
     h += '<div class="row2">';
-    h += '<div><label class="fld">重み付けモード</label><select data-set="predictMode">'
-      + '<option value="balance"' + (state.predictMode === 'balance' ? ' selected' : '') + '>頻度どおり（出現回数に比例）</option>'
-      + '<option value="hot"' + (state.predictMode === 'hot' ? ' selected' : '') + '>よく出る数字を強く重視</option>'
-      + '<option value="cold"' + (state.predictMode === 'cold' ? ' selected' : '') + '>出ていない数字を重視</option>'
-      + '<option value="flat"' + (state.predictMode === 'flat' ? ' selected' : '') + '>重み付けなし（条件のみ）</option>'
-      + '</select></div>';
     h += '<div><label class="fld">口数</label><select data-set="predictCount">';
     for (var i = 1; i <= 10; i++) {
       h += '<option value="' + i + '"' + (state.predictCount === i ? ' selected' : '') + '>' + i + '口</option>';
     }
     h += '</select></div></div>';
-    h += '<label class="fld">適用する条件（②の統計分布に合わせます）</label>';
+    h += '<label class="fld">あわせて合わせる条件（②の集計に合わせます）</label>';
     h += '<div class="checks">'
       + '<label><input type="checkbox" data-set="useCarry"' + (state.useCarry ? ' checked' : '') + '>引っ張り個数</label>'
       + '<label><input type="checkbox" data-set="useConsec"' + (state.useConsec ? ' checked' : '') + '>連続数字</label>'
@@ -1154,37 +1323,48 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 
     if (lastPicks && lastPicks.game === state.game) {
       var r = lastPicks.result;
-      h += '<h3 class="sub">生成結果</h3>';
-      h += '<p class="note">前回（' + (typeof r.prev.no === 'number' ? '第' + r.prev.no + '回' : '最新回') + '）: ' + r.prev.main.map(pad2).join(' ') + ' / B ' + r.prev.bonus.map(pad2).join(' ') + '</p>';
-      for (var p = 0; p < r.picks.length; p++) {
-        var pick = r.picks[p];
-        h += '<div class="pickrow"><div class="idx">' + (p + 1) + '口目</div>';
-        h += '<div class="chips">' + chips(pick.nums, 'pick') + '</div>';
-        var tailTxt = pick.ev.tails.length ? pick.ev.tails.map(function (x) { return x.nums.map(pad2).join('・'); }).join(' / ') : 'なし';
-        var runTxt = pick.ev.runs.length ? pick.ev.runs.map(function (x) { return x.map(pad2).join('-'); }).join(' / ') : 'なし';
-        h += '<div class="meta">引っ張り ' + pick.ev.carry + '個 ／ 連続 ' + runTxt + ' ／ 末尾一致 ' + tailTxt
-          + ' ／ 合計 ' + pick.ev.sum + ' ／ 奇数 ' + pick.ev.odd + '個'
-          + (pick.relax > 0 ? ' ／ <span style="color:#b45309">条件を一部緩和</span>' : '') + '</div>';
-        h += '</div>';
+      if (r.error) {
+        h += '<p class="note" style="color:#b91c1c">' + esc(r.error) + '</p>';
+      } else {
+        h += '<h3 class="sub">生成結果</h3>';
+        h += '<p class="note">前回（' + (typeof r.prev.no === 'number' ? '第' + r.prev.no + '回' : '最新回') + '）: '
+          + r.prev.main.map(pad2).join(' ') + ' / B ' + r.prev.bonus.map(pad2).join(' ') + '</p>';
+        for (var p = 0; p < r.picks.length; p++) {
+          var pick = r.picks[p];
+          h += '<div class="pickrow"><div class="idx">' + (p + 1) + '口目</div>';
+          h += '<div class="chips">' + chips(pick.nums, 'pick') + '</div>';
+          var tailTxt = pick.ev.tails.length ? pick.ev.tails.map(function (x) { return x.nums.map(pad2).join('・'); }).join(' / ') : 'なし';
+          var runTxt = pick.ev.runs.length ? pick.ev.runs.map(function (x) { return x.map(pad2).join('-'); }).join(' / ') : 'なし';
+          h += '<div class="meta"><b>加熱 ' + pick.ev.bands.hot + '個 ／ 標準 ' + pick.ev.bands.mid
+            + '個 ／ 低頻度 ' + pick.ev.bands.cold + '個</b></div>';
+          h += '<div class="meta">引っ張り ' + pick.ev.carry + '個 ／ 連続 ' + runTxt + ' ／ 末尾一致 ' + tailTxt
+            + ' ／ 合計 ' + pick.ev.sum + ' ／ 奇数 ' + pick.ev.odd + '個'
+            + (pick.relax > 0 ? ' ／ <span style="color:#b45309">条件を一部緩和</span>' : '') + '</div>';
+          h += '</div>';
+        }
+        h += '<div><button class="btn sub" data-act="copy">結果をコピー</button><button class="btn gray" data-act="gen">もう一度生成</button></div>';
+        h += '<p class="note">適用レンジ: 合計 ' + r.sumLo + '〜' + r.sumHi + ' ／ 連続あり確率 '
+          + fx(r.pConsec * 100, 1) + '% ／ 末尾一致あり確率 ' + fx(r.pTail * 100, 1) + '%</p>';
       }
-      h += '<div><button class="btn sub" data-act="copy">結果をコピー</button><button class="btn gray" data-act="gen">もう一度生成</button></div>';
-      h += '<p class="note">適用レンジ: 合計 ' + r.sumLo + '〜' + r.sumHi + ' ／ 連続あり確率 ' + fx(r.pConsec * 100, 1) + '% ／ 末尾一致あり確率 ' + fx(r.pTail * 100, 1) + '%</p>';
     }
     h += '</div>';
 
     h += '<div class="card">';
     h += '<h2 class="sec">この予想の作り方</h2>';
-    h += '<h3 class="sub">1. 数字ごとの重みを決める</h3>';
-    h += '<p class="note">①の対象期間（' + win.length + '回分）の出現回数から、数字ごとの選ばれやすさを決めます。出現回数を c として、選んだモードで計算式が変わります。</p>';
-    h += '<table class="tb"><thead><tr><th class="l">モード</th><th class="l">重み</th><th class="l">性格</th></tr></thead><tbody>'
-      + '<tr><td class="l">頻度どおり</td><td class="l">c ＋ 0.9</td><td class="l">出現回数にほぼ比例。0回の数字も選ばれます</td></tr>'
-      + '<tr><td class="l">よく出る数字を強く重視</td><td class="l">(c ＋ 0.6) の2.2乗</td><td class="l">差を広げて多い数字に寄せます</td></tr>'
-      + '<tr><td class="l">出ていない数字を重視</td><td class="l">1 ÷ (c ＋ 0.7) の1.6乗</td><td class="l">出ていない数字ほど選ばれます</td></tr>'
-      + '<tr><td class="l">重み付けなし</td><td class="l">すべて 1</td><td class="l">回数を見ず、下の条件だけを使います</td></tr>'
-      + '</tbody></table>';
-    h += '<p class="note">この重みで、重複しないように' + game.main + '個を1つずつ抽せんします（重みが大きい数字ほど当たりやすいくじ引き）。ホットとコールドを混ぜる、という意味の「バランス」ではありません。</p>';
-    h += '<h3 class="sub">2. ②の傾向に合う形かどうかを見る</h3>';
-    h += '<p class="note">選んだ' + game.main + '個が、②で集計した傾向に合っているかを確認し、合わなければ作り直します（最大2500回）。確認するのは次の5つで、チェックを外した項目は見ません。</p>';
+    h += '<h3 class="sub">1. 数字を3つの帯に分ける</h3>';
+    h += '<p class="note">対象' + win.length + '回での本数字の出現回数を見て、理論期待値（' + fx(bi.e, 2)
+      + '回）より目立って多い数字を加熱帯、目立って少ない数字を低頻度帯、その間を標準帯とします。'
+      + '境目は期待値 ± 標準偏差の半分（' + fx(bi.sd / 2, 2) + '回）です。ボーナス数字は帯の判定に使いません。</p>';
+    h += '<h3 class="sub">2. 帯ごとの個数を決める</h3>';
+    h += '<p class="note">当せん番号は加熱帯だけで揃うわけではなく、毎回いくつかの帯が混ざります。'
+      + 'そこで対象' + win.length + '回の当せん番号が「加熱何個・標準何個・低頻度何個」で構成されていたかを数え、'
+      + 'その実績の中から抽せんして今回の個数を決めます（上の表がその内訳）。自分で個数を決めることもできます。</p>';
+    h += '<h3 class="sub">3. 帯の中から数字を選ぶ</h3>';
+    h += '<p class="note">決まった個数だけ、それぞれの帯の中から<b>等確率</b>で選びます。'
+      + '帯に分けた時点で出現回数の多い少ないは反映されているため、帯の中ではさらに重みを付けません。</p>';
+    h += '<h3 class="sub">4. ②の集計に合う形か確かめる</h3>';
+    h += '<p class="note">選んだ' + game.main + '個が②の傾向に合っているかを確認し、合わなければ選び直します（最大2500回）。'
+      + 'チェックを外した項目は見ません。</p>';
     h += '<table class="tb"><thead><tr><th class="l">条件</th><th class="l">合わせ方</th></tr></thead><tbody>'
       + '<tr><td class="l">引っ張りの個数</td><td class="l">②の個数分布から抽せんし、その個数ちょうどにします</td></tr>'
       + '<tr><td class="l">連続数字</td><td class="l">②の「連続あり」の確率でくじを引き、その結果に合わせます</td></tr>'
@@ -1192,9 +1372,12 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '<tr><td class="l">合計値</td><td class="l">②の最小〜最大の範囲（前後8%の余裕つき）に収めます</td></tr>'
       + '<tr><td class="l">奇数の個数</td><td class="l">②の最小〜最大の範囲に収めます</td></tr>'
       + '</tbody></table>';
-    h += '<p class="note">見つからないときは、引っ張り → 連続 → 末尾 → 奇数 → 合計 の順に条件を外して探します。外したときは「条件を一部緩和」と表示します。</p>';
-    h += '<h3 class="sub">3. 正直なところ</h3>';
-    h += '<p class="note">やっているのは「過去の当せん番号と似た<b>形</b>の組み合わせを作る」ことだけです。抽せんは毎回独立した事象なので、<b>この操作で当せん確率は上がりません</b>（どの組み合わせも確率は同じです）。買い方の手がかりとしてお使いください。購入は自己責任でお願いします。</p>';
+    h += '<p class="note">見つからないときは、引っ張り → 連続 → 末尾 → 奇数 → 合計 の順に条件を外して探します。'
+      + '外したときは「条件を一部緩和」と表示します。帯の構成は外しません。</p>';
+    h += '<h3 class="sub">5. 正直なところ</h3>';
+    h += '<p class="note">やっているのは「過去の当せん番号と似た<b>形</b>の組み合わせを作る」ことだけです。'
+      + '抽せんは毎回独立した事象なので、<b>この操作で当せん確率は上がりません</b>（どの組み合わせも確率は同じです）。'
+      + '買い方の手がかりとしてお使いください。購入は自己責任でお願いします。</p>';
     h += '</div>';
     return h;
   }
@@ -1206,18 +1389,24 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '<div><b>' + state.data.loto6.length + '件</b><span>ロト6 保有データ</span></div>'
       + '<div><b>' + state.data.loto7.length + '件</b><span>ロト7 保有データ</span></div></div>';
     h += '<h3 class="sub">使い方</h3>';
-    h += '<p class="note">1. 「データ」タブで、当せん番号の一覧ページをコピーして貼り付け、「取り込む」（最新回から24回分以上あると分析が安定します）。月を切り替えて繰り返すと過去分が集まります。<br>'
-      + '2. 「出現率」タブで ① 各数字の出現回数と出現回数別のまとめを確認。<br>'
-      + '3. 「条件確率」タブで ② 引っ張り・連続・末尾同一などの出現確率を確認。<br>'
-      + '4. 「予想」タブで②の分布に沿った候補を生成。</p>';
-    h += '<h3 class="sub">集計ルール</h3>';
-    h += '<p class="note">・対象は「最新回から遡って指定回数分」（既定24回）。<br>'
+    h += '<p class="note">1. 「データ」タブで、当せん番号の一覧ページをコピーして貼り付け、「取り込む」。月を切り替えて繰り返すと過去分が集まります。<br>'
+      + '2. 「出現率」タブで ① 各数字の出現回数と、出現回数別のまとめを見ます。<br>'
+      + '3. 「条件確率」タブで ② 引っ張り・連続・末尾同一などが過去に何回あったかを見ます。<br>'
+      + '4. 「予想」タブで、①の頻度帯と②の集計に沿った買い目を作ります。</p>';
+    h += '<h3 class="sub">集計のしかた</h3>';
+    h += '<p class="note">・集計の対象は「最新回から遡って、選んだ回数分」です。回数は各タブの「集計対象」で切り替えます。<br>'
       + '・引っ張り＝その回の本数字のうち、直前回の本数字（設定によりボーナスも）に含まれていた個数。<br>'
-      + '・連続数字＝昇順に並べたとき差が1の並び。3連続は2連続2組とは別区分で数えます。<br>'
-      + '・末尾同一＝1の位が同じ数字のグループ。3個一致は2個一致とは別区分で数えます。<br>'
-      + '・データはこの端末のブラウザ内（localStorage）にのみ保存されます。</p>';
+      + '・連続数字＝昇順に並べたとき差が1の並び。3連続は2連続2組とは別に数えます。<br>'
+      + '・末尾同一＝1の位が同じ数字のまとまり。3個一致は2個一致とは別に数えます。<br>'
+      + '・頻度帯＝対象期間の本数字の出現回数を、理論期待値 ± 標準偏差の半分で3つに分けたもの。<br>'
+      + '・データはこの端末のブラウザ内（localStorage）にだけ保存されます。</p>';
+    h += '<h3 class="sub">この集計でわかること・わからないこと</h3>';
+    h += '<p class="note">わかるのは「過去の当せん番号にどんな傾向があったか」だけです。'
+      + '抽せんは毎回独立した事象なので、<b>集計する回数を増やしても次回の当たりやすさは変わりません</b>。'
+      + 'どの組み合わせも当せん確率は同じです。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.40</td><td class="l">予想を頻度帯（加熱帯・標準帯・低頻度帯）による方式に作り替えました。過去の当せん番号が各帯から何個ずつ出ていたかを数え、その構成に合わせて選びます。個数を自分で決めることもできます。ダミーデータ生成と、誤解を招く説明文を削除しました。</td></tr>';
     h += '<tr><td class="l">v1.30</td><td class="l">回ごとに1行の一覧表（第2139回 2026/9/21 03 06 … の形）も貼り付けられるようにしました。スラッシュ区切りの日付を当せん番号として読み違える不具合を修正。取り込みは常に追加のみにし、保存済みJSONの読み込みと手入力を廃止。予想タブに計算方法の説明を追加しました。</td></tr>';
     h += '<tr><td class="l">v1.20</td><td class="l">みずほの「抽せん数字一覧表」をブラウザでコピーして、そのまま貼り付けられるようにしました。1か月分がまとめて入ります。GitHub Actions からの自動取得はみずほ側に拒否されるため、通常はこちらを使います。</td></tr>';
     h += '<tr><td class="l">v1.14</td><td class="l">みずほへの接続が拒否された（403）ため、一般的なブラウザと同じ要求ヘッダで取得するように変更。</td></tr>';
@@ -1286,33 +1475,6 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     download(game.key + '_data.csv', lines.join('\n'), 'text/csv');
   }
 
-  function makeDemo() {
-    if (!confirm('動作確認用のダミーデータ30回分を作成します（実際の抽せん結果ではありません）。現在のデータは置き換わります。よろしいですか？')) { return; }
-    var game = g();
-    var list = [];
-    var no = 1900;
-    for (var i = 0; i < 30; i++) {
-      var pool = [];
-      for (var n = 1; n <= game.max; n++) { pool.push(n); }
-      var picked = [];
-      for (var k = 0; k < game.main + game.bonus; k++) {
-        var idx = Math.floor(Math.random() * pool.length);
-        picked.push(pool[idx]);
-        pool.splice(idx, 1);
-      }
-      list.push({
-        no: no - i,
-        date: null,
-        main: picked.slice(0, game.main).sort(asc),
-        bonus: picked.slice(game.main).sort(asc),
-        demo: true
-      });
-    }
-    state.data[game.key] = list;
-    save();
-    render();
-  }
-
   function copyPicks() {
     if (!lastPicks) { return; }
     var game = g();
@@ -1358,10 +1520,18 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     }
     else if (act === 'export-json') { download(state.game + '_data.json', JSON.stringify(draws(), null, 1), 'application/json'); }
     else if (act === 'export-csv') { exportCsv(); }
-    else if (act === 'demo') { makeDemo(); }
     else if (act === 'gen') {
       var res = generatePicks();
-      if (!res || res.picks.length === 0) { alert('条件に合う組み合わせを作れませんでした。条件を減らしてください。'); return; }
+      if (!res) { alert('予想には2回分以上のデータが必要です。'); return; }
+      if (res.error) {
+        lastPicks = { game: state.game, result: res };
+        render();
+        return;
+      }
+      if (res.picks.length === 0) {
+        alert('条件に合う組み合わせを作れませんでした。条件を減らしてください。');
+        return;
+      }
       lastPicks = { game: state.game, result: res };
       render();
     }
