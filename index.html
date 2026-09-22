@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.40';
+  var APP_VERSION = '1.41';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -1007,16 +1007,9 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     h += '</div>';
 
     h += '<h3 class="sub">頻度帯の組み合わせ</h3>';
-    var biC = bandInfo(win, game);
-    var compC = bandComposition(win, biC);
+    var compC = bandComposition(game);
     h += '<p class="note">各回の本数字が、加熱帯・標準帯・低頻度帯から何個ずつ出ていたかです。予想タブはこの実績から構成を抽せんします。</p>';
-    h += '<table class="tb"><thead><tr><th class="l">加熱</th><th class="l">標準</th><th class="l">低頻度</th><th>回数</th><th>割合</th></tr></thead><tbody>';
-    for (var cc = 0; cc < compC.length; cc++) {
-      h += '<tr><td class="l">' + compC[cc].hot + '個</td><td class="l">' + compC[cc].mid + '個</td>'
-        + '<td class="l">' + compC[cc].cold + '個</td><td>' + compC[cc].count + '回</td>'
-        + '<td>' + fx(rate(compC[cc].count, c.n), 1) + '%</td></tr>';
-    }
-    h += '</tbody></table>';
+    h += compTable(compC);
 
     h += '<h3 class="sub">回別の明細</h3>';
     h += '<div class="scroll"><table class="tb"><thead><tr><th class="l">回</th><th class="l">本数字</th><th>引っ張り</th><th>連続</th><th>末尾</th><th>合計</th><th>奇</th></tr></thead><tbody>';
@@ -1090,21 +1083,49 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 
   function patternKey(p) { return p.hot + '-' + p.mid + '-' + p.cold; }
 
-  /* 対象期間の各回が、どの帯から何個ずつ出ていたかを数えます */
-  function bandComposition(win, bi) {
+  /*
+   * 各回が、どの帯から何個ずつ出ていたかを数えます。
+   * 帯はその回より前のデータだけで決めます。対象期間にその回自身を含めると、
+   * 当せん番号は自分自身で出現回数が1増えるぶん必ず上の帯へ押し上げられ、
+   * 加熱帯が1個ぶん水増しされるためです（予想するときの条件とも一致しません）。
+   */
+  function bandComposition(game) {
+    var all = draws();
+    var n = winSize();
     var map = {};
-    for (var i = 0; i < win.length; i++) {
-      var p = bandPattern(win[i].main, bi);
-      var k = patternKey(p);
-      if (!map[k]) { map[k] = { hot: p.hot, mid: p.mid, cold: p.cold, count: 0 }; }
-      map[k].count += 1;
+    var used = 0;
+    var approx = false;
+    var i, p, k;
+
+    function add(pattern) {
+      var key = patternKey(pattern);
+      if (!map[key]) {
+        map[key] = { hot: pattern.hot, mid: pattern.mid, cold: pattern.cold, count: 0 };
+      }
+      map[key].count += 1;
+      used += 1;
     }
-    var list = Object.keys(map).map(function (k) { return map[k]; });
+
+    for (i = 0; i < n; i++) {
+      var back = all.slice(i + 1, i + 1 + n);
+      if (back.length < 10) { break; }
+      add(bandPattern(all[i].main, bandInfo(back, game)));
+    }
+
+    if (used === 0) {
+      /* 履歴が足りないときだけ、対象期間そのもので代用します（加熱帯が多めに出ます） */
+      approx = true;
+      var bi = bandInfo(all.slice(0, n), game);
+      for (i = 0; i < n; i++) { add(bandPattern(all[i].main, bi)); }
+    }
+
+    var list = Object.keys(map).map(function (key) { return map[key]; });
     list.sort(function (a, b) { return b.count - a.count || b.hot - a.hot; });
-    return list;
+    return { list: list, used: used, approx: approx };
   }
 
-  function sampleComposition(list) {
+  function sampleComposition(comp) {
+    var list = comp.list;
     var total = 0;
     var i;
     for (i = 0; i < list.length; i++) { total += list[i].count; }
@@ -1155,7 +1176,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     if (win.length < 2) { return null; }
     var c = calcConditions();
     var bi = bandInfo(win, game);
-    var comp = bandComposition(win, bi);
+    var comp = bandComposition(game);
     var prev = draws()[0];
     var prevSet = {};
     var i;
@@ -1229,6 +1250,27 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     };
   }
 
+  function compTable(comp) {
+    var h = '<table class="tb"><thead><tr><th class="l">加熱</th><th class="l">標準</th>'
+      + '<th class="l">低頻度</th><th>回数</th><th>割合</th></tr></thead><tbody>';
+    for (var i = 0; i < comp.list.length; i++) {
+      var r = comp.list[i];
+      h += '<tr><td class="l">' + r.hot + '個</td><td class="l">' + r.mid + '個</td>'
+        + '<td class="l">' + r.cold + '個</td><td>' + r.count + '回</td>'
+        + '<td>' + fx(rate(r.count, comp.used), 1) + '%</td></tr>';
+    }
+    h += '</tbody></table>';
+    if (comp.approx) {
+      h += '<p class="note" style="color:#b45309">履歴が足りないため、対象期間そのもので帯を決めて数えています。'
+        + 'この数え方では当せん番号が自分自身で出現回数を1増やすぶん、加熱帯が多めに出ます。'
+        + 'データを増やすと正しい数え方に切り替わります。</p>';
+    } else {
+      h += '<p class="note">過去' + comp.used + '回ぶんを集計しています。各回の帯は、その回より前のデータだけで決めています'
+        + '（その回自身を含めると加熱帯が1個ぶん水増しされるため）。</p>';
+    }
+    return h;
+  }
+
   function bandChips(bi, key) {
     var nums = bi.groups[key];
     if (nums.length === 0) { return '<span class="muted" style="font-size:12px">なし</span>'; }
@@ -1265,7 +1307,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       return h;
     }
     var bi = bandInfo(win, game);
-    var comp = bandComposition(win, bi);
+    var comp = bandComposition(game);
 
     h += '<h3 class="sub">いまの頻度帯</h3>';
     h += bandSummary(bi, game);
@@ -1294,14 +1336,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       h += '<p class="note"' + (total === game.main ? '' : ' style="color:#b91c1c"') + '>合計 ' + total
         + '個 / ' + game.main + '個' + (total === game.main ? '' : '（合計を' + game.main + '個にしてください）') + '</p>';
     } else {
-      h += '<p class="note">対象' + win.length + '回で実際にあった組み合わせの中から、出現した回数の多いものほど選ばれやすい形で抽せんします。下の表がその内訳です。</p>';
-      h += '<table class="tb"><thead><tr><th class="l">加熱</th><th class="l">標準</th><th class="l">低頻度</th><th>回数</th><th>割合</th></tr></thead><tbody>';
-      for (var q = 0; q < comp.length; q++) {
-        h += '<tr><td class="l">' + comp[q].hot + '個</td><td class="l">' + comp[q].mid + '個</td>'
-          + '<td class="l">' + comp[q].cold + '個</td><td>' + comp[q].count + '回</td>'
-          + '<td>' + fx(rate(comp[q].count, win.length), 1) + '%</td></tr>';
-      }
-      h += '</tbody></table>';
+      h += '<p class="note">過去' + comp.used + '回で実際にあった組み合わせの中から、出現した回数の多いものほど選ばれやすい形で抽せんします。下の表がその内訳です。</p>';
+      h += compTable(comp);
     }
 
     h += '<h3 class="sub">その他の設定</h3>';
@@ -1357,8 +1393,12 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '境目は期待値 ± 標準偏差の半分（' + fx(bi.sd / 2, 2) + '回）です。ボーナス数字は帯の判定に使いません。</p>';
     h += '<h3 class="sub">2. 帯ごとの個数を決める</h3>';
     h += '<p class="note">当せん番号は加熱帯だけで揃うわけではなく、毎回いくつかの帯が混ざります。'
-      + 'そこで対象' + win.length + '回の当せん番号が「加熱何個・標準何個・低頻度何個」で構成されていたかを数え、'
+      + 'そこで過去の当せん番号が「加熱何個・標準何個・低頻度何個」で構成されていたかを数え、'
       + 'その実績の中から抽せんして今回の個数を決めます（上の表がその内訳）。自分で個数を決めることもできます。</p>';
+    h += '<p class="note">このとき、各回の帯は<b>その回より前のデータだけ</b>で決めます。'
+      + '対象期間にその回自身を含めると、当せん番号は自分で出現回数を1増やすぶん必ず上の帯へ押し上げられ、'
+      + '加熱帯がちょうど1個ぶん水増しされてしまうためです。これから買う回はまだ抽せんされていないので、'
+      + 'こちらが予想するときの条件と同じです。</p>';
     h += '<h3 class="sub">3. 帯の中から数字を選ぶ</h3>';
     h += '<p class="note">決まった個数だけ、それぞれの帯の中から<b>等確率</b>で選びます。'
       + '帯に分けた時点で出現回数の多い少ないは反映されているため、帯の中ではさらに重みを付けません。</p>';
@@ -1406,6 +1446,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + 'どの組み合わせも当せん確率は同じです。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.41</td><td class="l">頻度帯の組み合わせを数えるとき、その回自身を含めていたのを修正しました。当せん番号は自分で出現回数を1増やすため、加熱帯がちょうど1個ぶん水増しされていました。各回の帯は、その回より前のデータだけで決めます。</td></tr>';
     h += '<tr><td class="l">v1.40</td><td class="l">予想を頻度帯（加熱帯・標準帯・低頻度帯）による方式に作り替えました。過去の当せん番号が各帯から何個ずつ出ていたかを数え、その構成に合わせて選びます。個数を自分で決めることもできます。ダミーデータ生成と、誤解を招く説明文を削除しました。</td></tr>';
     h += '<tr><td class="l">v1.30</td><td class="l">回ごとに1行の一覧表（第2139回 2026/9/21 03 06 … の形）も貼り付けられるようにしました。スラッシュ区切りの日付を当せん番号として読み違える不具合を修正。取り込みは常に追加のみにし、保存済みJSONの読み込みと手入力を廃止。予想タブに計算方法の説明を追加しました。</td></tr>';
     h += '<tr><td class="l">v1.20</td><td class="l">みずほの「抽せん数字一覧表」をブラウザでコピーして、そのまま貼り付けられるようにしました。1か月分がまとめて入ります。GitHub Actions からの自動取得はみずほ側に拒否されるため、通常はこちらを使います。</td></tr>';

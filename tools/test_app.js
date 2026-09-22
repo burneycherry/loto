@@ -403,6 +403,73 @@ for (var a2 = 0; a2 < autoBands.length; a2++) {
 }
 check('自動のときは過去に実際にあった構成だけを使う', inPast, true);
 
+console.log('帯の集計に自分自身を含めないこと');
+/*
+ * 解析の動作を確かめるための作り物の並びで、当せん番号ではない。
+ * 43で互いに異なる7つのずらし幅を使うので、6個の本数字とボーナスは必ず重複しない。
+ */
+var MECH = [];
+for (var mi = 0; mi < 40; mi++) {
+  var offs = [0, 5, 11, 17, 23, 31, 37];
+  var nums = offs.map(function (o) { return ((mi * 7 + o) % 43) + 1; });
+  MECH.push({ no: 900 - mi, date: null, main: nums.slice(0, 6).sort(function (a, b) { return a - b; }), bonus: [nums[6]] });
+}
+
+/* その回より前のデータだけで帯を決める、独立した実装 */
+function expectedComposition(all, n, max, mainCount) {
+  var map = {};
+  var used = 0;
+  for (var i = 0; i < n; i++) {
+    var back = all.slice(i + 1, i + 1 + n);
+    if (back.length < 10) { break; }
+    var cnt = [];
+    var j;
+    for (j = 0; j <= max; j++) { cnt.push(0); }
+    for (j = 0; j < back.length; j++) {
+      for (var b = 0; b < back[j].main.length; b++) { cnt[back[j].main[b]] += 1; }
+    }
+    var pr = mainCount / max;
+    var e = back.length * pr;
+    var sd = Math.sqrt(back.length * pr * (1 - pr));
+    var hi = e + sd * 0.5;
+    var lo = e - sd * 0.5;
+    var pat = { hot: 0, mid: 0, cold: 0 };
+    for (var m = 0; m < all[i].main.length; m++) {
+      var c = cnt[all[i].main[m]];
+      pat[c > hi ? 'hot' : (c < lo ? 'cold' : 'mid')] += 1;
+    }
+    var key = pat.hot + '-' + pat.mid + '-' + pat.cold;
+    map[key] = (map[key] || 0) + 1;
+    used += 1;
+  }
+  return { map: map, used: used };
+}
+
+var mech = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: MECH, loto7: [] } } });
+mech.click({ 'data-act': 'tab', 'data-t': 'cond' });
+var mechHtml = mech.html();
+var exp = expectedComposition(MECH, 24, 43, 6);
+
+var shown = {};
+var rowRe = /<td class="l">(\d+)個<\/td><td class="l">(\d+)個<\/td><td class="l">(\d+)個<\/td><td>(\d+)回<\/td>/g;
+var rm;
+while ((rm = rowRe.exec(mechHtml)) !== null) {
+  shown[rm[1] + '-' + rm[2] + '-' + rm[3]] = Number(rm[4]);
+}
+function sortedPairs(o) {
+  return Object.keys(o).sort().map(function (k) { return k + ':' + o[k]; });
+}
+check('その回より前だけで数えた結果と一致する', sortedPairs(shown), sortedPairs(exp.map));
+check('24回ぶんを集計している', exp.used, 24);
+check('自分自身を含める数え方には戻っていない',
+  mechHtml.indexOf('履歴が足りないため') < 0, true);
+has('前のデータだけで決めていると明記', mech.text(), 'その回より前のデータだけで決めています');
+
+var few = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: REAL8, loto7: [] } } });
+few.click({ 'data-act': 'tab', 'data-t': 'cond' });
+has('履歴が足りないときは断り書きを出す', few.text(), '履歴が足りないため');
+has('加熱帯が多めに出ることを伝える', few.text(), '加熱帯が多めに出ます');
+
 console.log('表現の見直し');
 var wording = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: REAL8, loto7: [] } } });
 wording.click({ 'data-act': 'tab', 'data-t': 'info' });

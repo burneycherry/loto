@@ -1,4 +1,4 @@
-var APP_VERSION = '1.40';
+var APP_VERSION = '1.41';
 var CACHE_NAME = 'loto-stats-v' + APP_VERSION;
 var ASSETS = [
   './',
