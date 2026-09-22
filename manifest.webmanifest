@@ -1,0 +1,16 @@
+{
+  "name": "ロト統計アナライザー",
+  "short_name": "ロト統計",
+  "description": "ロト6・ロト7の当せん番号から出現率と条件別出現確率を集計し、統計ベースの予想を生成します。",
+  "lang": "ja",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eef1f6",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ロト統計">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f172a">
+<title>ロト統計アナライザー</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="icon" href="icon.svg">
+<style>
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #eef1f6;
+  color: #182027;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  min-height: 100vh;
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+}
+header.app {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #0f172a;
+  color: #f2f5fa;
+  padding: calc(8px + env(safe-area-inset-top)) 14px 10px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.25);
+}
+.hrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.title { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; }
+.ver {
+  font-size: 11px;
+  font-weight: 600;
+  background: #1e293b;
+  color: #9fd0ff;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.seg { display: flex; gap: 6px; margin-top: 9px; }
+.seg button {
+  flex: 1;
+  appearance: none;
+  border: 1px solid #33415a;
+  background: #172033;
+  color: #c7d3e6;
+  border-radius: 10px;
+  padding: 7px 4px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+}
+.seg button.on { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+main { padding: 12px 12px 8px; max-width: 760px; margin: 0 auto; }
+.card {
+  background: #ffffff;
+  border: 1px solid #dfe5ee;
+  border-radius: 14px;
+  padding: 13px 13px 15px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+}
+h2.sec {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  border-left: 4px solid #2563eb;
+  padding-left: 8px;
+  line-height: 1.3;
+}
+h3.sub { margin: 16px 0 7px; font-size: 14px; font-weight: 700; color: #1d4ed8; }
+h3.sub:first-child { margin-top: 2px; }
+p.note { margin: 6px 0 0; font-size: 12px; color: #5b6774; }
+.muted { color: #5b6774; }
+.warn {
+  background: #fff7e6;
+  border: 1px solid #f0c987;
+  color: #7a4d00;
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.empty { text-align: center; color: #5b6774; padding: 18px 6px; font-size: 14px; }
+button.btn {
+  appearance: none;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+  padding: 10px 14px;
+  margin: 4px 6px 4px 0;
+  min-height: 42px;
+}
+button.btn.sub { background: #ffffff; color: #2563eb; }
+button.btn.gray { background: #ffffff; color: #475569; border-color: #cbd5e1; }
+button.btn.danger { background: #ffffff; color: #b91c1c; border-color: #e7b3b3; }
+button.btn.wide { width: 100%; margin-right: 0; }
+button.mini {
+  appearance: none;
+  font-family: inherit;
+  font-size: 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  padding: 4px 8px;
+}
+textarea, input[type="text"], input[type="number"], select {
+  font-family: inherit;
+  font-size: 16px;
+  width: 100%;
+  border: 1px solid #c8d2e0;
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: #ffffff;
+  color: #182027;
+}
+textarea { min-height: 130px; line-height: 1.5; }
+label.fld { display: block; font-size: 12px; font-weight: 600; color: #47546b; margin: 10px 0 4px; }
+.row2 { display: flex; gap: 8px; flex-wrap: wrap; }
+.row2 > div { flex: 1 1 130px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 32px;
+  padding: 0 7px;
+  border-radius: 9px;
+  background: #eef2f8;
+  border: 1px solid #d7deea;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #1f2937;
+}
+.chip.b { background: #fdecef; border-color: #f2c3cd; color: #a3123a; }
+.chip.h4 { background: #b91c1c; border-color: #b91c1c; color: #ffffff; }
+.chip.h3 { background: #f97316; border-color: #f97316; color: #ffffff; }
+.chip.h2 { background: #fde68a; border-color: #f2d27a; color: #713f12; }
+.chip.h1 { background: #dbeafe; border-color: #bfdbfe; color: #1e40af; }
+.chip.h0 { background: #f1f5f9; border-color: #dbe2ea; color: #64748b; }
+.chip.pick {
+  min-width: 40px;
+  height: 38px;
+  font-size: 16px;
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #ffffff;
+}
+table.tb { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+table.tb th, table.tb td {
+  border-bottom: 1px solid #e6ebf2;
+  padding: 6px 5px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+table.tb th {
+  background: #f4f7fb;
+  color: #47546b;
+  font-weight: 600;
+  text-align: right;
+  position: sticky;
+  top: 0;
+}
+table.tb th:first-child, table.tb td:first-child { text-align: left; }
+table.tb td.l, table.tb th.l { text-align: left; }
+.scroll { max-height: 420px; overflow: auto; border: 1px solid #e6ebf2; border-radius: 10px; }
+.bar { height: 7px; border-radius: 4px; background: #e3e9f2; overflow: hidden; min-width: 40px; }
+.bar > i { display: block; height: 100%; background: #2563eb; }
+.kpi { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 2px; }
+.kpi > div {
+  flex: 1 1 110px;
+  background: #f5f8fc;
+  border: 1px solid #e2e9f3;
+  border-radius: 11px;
+  padding: 8px 10px;
+}
+.kpi b { display: block; font-size: 18px; color: #0f172a; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 11px; color: #5b6774; }
+.dist { margin: 6px 0 0; }
+.dist > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px dashed #e3e9f2;
+  flex-wrap: wrap;
+}
+.dist .lb {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f172a;
+  background: #eef2f8;
+  border-radius: 8px;
+  padding: 3px 8px;
+}
+.pickrow {
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  padding: 9px 10px;
+  margin-bottom: 9px;
+  background: #fbfdff;
+}
+.pickrow .meta { font-size: 11.5px; color: #5b6774; margin-top: 5px; }
+.pickrow .idx { font-size: 12px; font-weight: 700; color: #1d4ed8; }
+nav.tabs {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  background: #ffffff;
+  border-top: 1px solid #dde3ec;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+nav.tabs button {
+  flex: 1;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #68758a;
+  padding: 8px 2px 9px;
+  line-height: 1.25;
+}
+nav.tabs button em { display: block; font-size: 18px; font-style: normal; }
+nav.tabs button.on { color: #2563eb; }
+.inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.checks { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.checks label { font-size: 13px; display: inline-flex; align-items: center; gap: 5px; }
+code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 12px; }
+@media (prefers-color-scheme: dark) {
+  html, body { background: #0b0f16; color: #e4e9f0; }
+  .card { background: #151b25; border-color: #26303f; box-shadow: none; }
+  h2.sec { color: #e9eef6; }
+  h3.sub { color: #7fb0ff; }
+  p.note, .muted, .kpi span { color: #93a2b8; }
+  .empty { color: #93a2b8; }
+  .warn { background: #33270d; border-color: #6b551f; color: #f4d99b; }
+  textarea, input[type="text"], input[type="number"], select {
+    background: #0f141d;
+    color: #e4e9f0;
+    border-color: #2c3746;
+  }
+  label.fld { color: #9fb0c7; }
+  button.btn.sub { background: #101722; color: #7fb0ff; border-color: #2c4a7a; }
+  button.btn.gray { background: #101722; color: #a8b6c9; border-color: #2c3746; }
+  button.btn.danger { background: #101722; color: #f28b8b; border-color: #6b2b2b; }
+  button.mini { background: #101722; color: #a8b6c9; border-color: #2c3746; }
+  .chip { background: #1b2432; border-color: #2c3746; color: #dde5ef; }
+  .chip.b { background: #3a1522; border-color: #6d2a3d; color: #ffc0cf; }
+  .chip.h4 { background: #b91c1c; border-color: #b91c1c; color: #ffffff; }
+  .chip.h3 { background: #c2610c; border-color: #c2610c; color: #ffffff; }
+  .chip.h2 { background: #7a5c12; border-color: #8a6a18; color: #ffe9a8; }
+  .chip.h1 { background: #12315e; border-color: #1c467f; color: #cbe0ff; }
+  .chip.h0 { background: #161d28; border-color: #263041; color: #7f8ca0; }
+  .chip.pick { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+  table.tb th { background: #182130; color: #9fb0c7; }
+  table.tb th, table.tb td { border-bottom-color: #232d3c; }
+  .scroll { border-color: #26303f; }
+  .bar { background: #202a39; }
+  .kpi > div { background: #111925; border-color: #26303f; }
+  .kpi b { color: #eaf0f8; }
+  .dist .lb { background: #1b2432; color: #e4e9f0; }
+  .dist > div { border-bottom-color: #232d3c; }
+  .pickrow { background: #111925; border-color: #26303f; }
+  nav.tabs { background: #101723; border-top-color: #26303f; }
+  nav.tabs button { color: #8b99ad; }
+  nav.tabs button.on { color: #7fb0ff; }
+  code.sm { background: #1b2432; }
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function () {
+  'use strict';
+
+  var APP_VERSION = '1.00';
+  var STORE_KEY = 'lotoStatsApp.v1';
+
+  var GAMES = {
+    loto6: { key: 'loto6', label: 'ロト6', max: 43, main: 6, bonus: 1 },
+    loto7: { key: 'loto7', label: 'ロト7', max: 37, main: 7, bonus: 2 }
+  };
+
+  var TABS = [
+    { key: 'data', icon: '⌨', label: 'データ' },
+    { key: 'freq', icon: '①', label: '出現率' },
+    { key: 'cond', icon: '②', label: '条件確率' },
+    { key: 'pred', icon: '◎', label: '予想' },
+    { key: 'info', icon: 'i', label: '情報' }
+  ];
+
+  var state = {
+    game: 'loto6',
+    tab: 'data',
+    windowSize: 24,
+    carryWithBonus: false,
+    freqTarget: 'main',
+    freqSort: 'num',
+    predictMode: 'balance',
+    predictCount: 5,
+    useCarry: true,
+    useConsec: true,
+    useTail: true,
+    useSum: true,
+    useOdd: true,
+    pasteOrder: 'auto',
+    data: { loto6: [], loto7: [] }
+  };
+
+  var pasteText = '';
+  var lastPicks = null;
+
+  function $(id) { return document.getElementById(id); }
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      if (c === '&') { return '&amp;'; }
+      if (c === '<') { return '&lt;'; }
+      if (c === '>') { return '&gt;'; }
+      return '&quot;';
+    });
+  }
+  function fx(v, k) {
+    if (!isFinite(v)) { return '0'; }
+    return v.toFixed(k);
+  }
+  function rate(n, d) { return d > 0 ? (n / d) * 100 : 0; }
+  function sum(arr) {
+    var t = 0;
+    for (var i = 0; i < arr.length; i++) { t += arr[i]; }
+    return t;
+  }
+  function asc(a, b) { return a - b; }
+
+  function save() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        v: APP_VERSION,
+        game: state.game,
+        windowSize: state.windowSize,
+        carryWithBonus: state.carryWithBonus,
+        freqTarget: state.freqTarget,
+        freqSort: state.freqSort,
+        predictMode: state.predictMode,
+        predictCount: state.predictCount,
+        useCarry: state.useCarry,
+        useConsec: state.useConsec,
+        useTail: state.useTail,
+        useSum: state.useSum,
+        useOdd: state.useOdd,
+        pasteOrder: state.pasteOrder,
+        data: state.data
+      }));
+    } catch (e) { /* 保存できない環境では無視 */ }
+  }
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(STORE_KEY);
+      if (!raw) { return; }
+      var o = JSON.parse(raw);
+      if (!o || typeof o !== 'object') { return; }
+      var keys = ['game', 'windowSize', 'carryWithBonus', 'freqTarget', 'freqSort',
+        'predictMode', 'predictCount', 'useCarry', 'useConsec', 'useTail',
+        'useSum', 'useOdd', 'pasteOrder'];
+      for (var i = 0; i < keys.length; i++) {
+        if (typeof o[keys[i]] !== 'undefined') { state[keys[i]] = o[keys[i]]; }
+      }
+      if (o.data) {
+        if (Array.isArray(o.data.loto6)) { state.data.loto6 = o.data.loto6; }
+        if (Array.isArray(o.data.loto7)) { state.data.loto7 = o.data.loto7; }
+      }
+    } catch (e) { /* 壊れた保存データは無視 */ }
+  }
+
+  function g() { return GAMES[state.game]; }
+  function draws() { return state.data[state.game]; }
+
+  function winSize() {
+    var all = draws();
+    if (state.windowSize === 0) { return all.length; }
+    return Math.min(state.windowSize, all.length);
+  }
+
+  function windowDraws() { return draws().slice(0, winSize()); }
+
+  function drawKey(d) {
+    if (typeof d.no === 'number' && isFinite(d.no)) { return 'n' + d.no; }
+    return 'k' + d.main.slice().sort(asc).join('-') + '|' + d.bonus.slice().sort(asc).join('-');
+  }
+
+  function sortDraws(list) {
+    var allNo = list.length > 0;
+    for (var i = 0; i < list.length; i++) {
+      if (typeof list[i].no !== 'number' || !isFinite(list[i].no)) { allNo = false; }
+    }
+    if (allNo) {
+      list.sort(function (a, b) { return b.no - a.no; });
+    }
+    return list;
+  }
+
+  function parseDraws(text, game) {
+    var lines = String(text).split(/\r?\n/);
+    var out = [];
+    var errs = [];
+    var need = game.main + game.bonus;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].replace(/[０-９]/g, function (c) {
+        return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+      });
+      if (!/\d/.test(line)) { continue; }
+      var no = null;
+      var date = null;
+      var mNo = line.match(/第\s*(\d{1,5})\s*回/);
+      if (mNo) { no = parseInt(mNo[1], 10); line = line.replace(mNo[0], ' '); }
+      var mDate = line.match(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*日?/);
+      if (mDate) {
+        date = mDate[1] + '-' + pad2(parseInt(mDate[2], 10)) + '-' + pad2(parseInt(mDate[3], 10));
+        line = line.replace(mDate[0], ' ');
+      }
+      var nums = line.match(/\d+/g);
+      if (!nums) { continue; }
+      nums = nums.map(Number);
+      if (nums.length < need) {
+        errs.push((i + 1) + '行目: 数字が' + nums.length + '個しかありません（' + need + '個必要）');
+        continue;
+      }
+      var picked = nums.slice(nums.length - need);
+      if (no === null && nums.length > need) {
+        var lead = nums[nums.length - need - 1];
+        if (lead > game.max) { no = lead; }
+      }
+      var ok = true;
+      var seen = {};
+      for (var j = 0; j < picked.length; j++) {
+        var v = picked[j];
+        if (!(v >= 1 && v <= game.max) || seen[v]) { ok = false; break; }
+        seen[v] = 1;
+      }
+      if (!ok) {
+        errs.push((i + 1) + '行目: 1〜' + game.max + 'の重複なしの数字として読めません（' + picked.join(',') + '）');
+        continue;
+      }
+      out.push({
+        no: no,
+        date: date,
+        main: picked.slice(0, game.main).sort(asc),
+        bonus: picked.slice(game.main).sort(asc)
+      });
+    }
+    return { draws: out, errors: errs };
+  }
+
+  function importText(mode) {
+    var game = g();
+    var r = parseDraws(pasteText, game);
+    if (r.draws.length === 0) {
+      alert('読み取れた回がありません。\n' + (r.errors.slice(0, 5).join('\n') || '形式を確認してください。'));
+      return;
+    }
+    var list = r.draws;
+    var hasNo = true;
+    for (var i = 0; i < list.length; i++) {
+      if (typeof list[i].no !== 'number') { hasNo = false; }
+    }
+    if (!hasNo) {
+      if (state.pasteOrder === 'old') { list.reverse(); }
+    } else {
+      list.sort(function (a, b) { return b.no - a.no; });
+    }
+    var merged;
+    if (mode === 'replace') {
+      merged = list;
+    } else {
+      merged = list.concat(state.data[game.key]);
+      var seen = {};
+      var uniq = [];
+      for (var k = 0; k < merged.length; k++) {
+        var key = drawKey(merged[k]);
+        if (seen[key]) { continue; }
+        seen[key] = 1;
+        uniq.push(merged[k]);
+      }
+      merged = sortDraws(uniq);
+    }
+    state.data[game.key] = merged;
+    pasteText = '';
+    save();
+    render();
+    var msg = r.draws.length + '件を取り込みました（保有 ' + merged.length + '件）。';
+    if (r.errors.length) { msg += '\n読み飛ばし ' + r.errors.length + '行:\n' + r.errors.slice(0, 5).join('\n'); }
+    alert(msg);
+  }
+
+  function calcFreq(win, game) {
+    var main = [];
+    var bonus = [];
+    var i;
+    for (i = 0; i <= game.max; i++) { main.push(0); bonus.push(0); }
+    for (i = 0; i < win.length; i++) {
+      var d = win[i];
+      for (var j = 0; j < d.main.length; j++) { main[d.main[j]] += 1; }
+      for (var k = 0; k < d.bonus.length; k++) { bonus[d.bonus[k]] += 1; }
+    }
+    var all = [];
+    for (i = 0; i <= game.max; i++) { all.push(main[i] + bonus[i]); }
+    return { main: main, bonus: bonus, all: all };
+  }
+
+  function groupByCount(counts, game) {
+    var map = {};
+    for (var n = 1; n <= game.max; n++) {
+      var c = counts[n];
+      if (!map[c]) { map[c] = []; }
+      map[c].push(n);
+    }
+    var keys = Object.keys(map).map(Number).sort(function (a, b) { return b - a; });
+    return keys.map(function (c) { return { count: c, nums: map[c] }; });
+  }
+
+  function runsOf(sorted) {
+    var runs = [];
+    var cur = [sorted[0]];
+    for (var i = 1; i < sorted.length; i++) {
+      if (sorted[i] === sorted[i - 1] + 1) { cur.push(sorted[i]); }
+      else { runs.push(cur); cur = [sorted[i]]; }
+    }
+    runs.push(cur);
+    return runs;
+  }
+
+  function tailGroups(nums) {
+    var map = {};
+    for (var i = 0; i < nums.length; i++) {
+      var t = nums[i] % 10;
+      if (!map[t]) { map[t] = []; }
+      map[t].push(nums[i]);
+    }
+    var gs = [];
+    Object.keys(map).forEach(function (t) {
+      if (map[t].length >= 2) { gs.push({ tail: Number(t), nums: map[t] }); }
+    });
+    gs.sort(function (a, b) { return b.nums.length - a.nums.length; });
+    return gs;
+  }
+
+  function calcConditions() {
+    var game = g();
+    var all = draws();
+    var n = winSize();
+    var res = {
+      n: n,
+      comparable: 0,
+      carryDist: {},
+      carryTotal: 0,
+      consecDist: { none: 0, p1: 0, p2: 0, t3: 0, q4: 0 },
+      consecAny: 0,
+      consec3: 0,
+      tailDist: { none: 0, p1: 0, p2: 0, t3: 0 },
+      tailAny: 0,
+      tail3: 0,
+      sums: [],
+      odds: [],
+      rows: []
+    };
+    for (var i = 0; i < n; i++) {
+      var d = all[i];
+      var s = d.main.slice().sort(asc);
+      var row = { d: d, carry: null, runs: [], tails: [], sum: sum(s), odd: 0 };
+      for (var z = 0; z < s.length; z++) { if (s[z] % 2 === 1) { row.odd += 1; } }
+      res.sums.push(row.sum);
+      res.odds.push(row.odd);
+
+      if (i + 1 < all.length) {
+        var prev = all[i + 1];
+        var pset = {};
+        for (var a = 0; a < prev.main.length; a++) { pset[prev.main[a]] = 1; }
+        if (state.carryWithBonus) {
+          for (var b = 0; b < prev.bonus.length; b++) { pset[prev.bonus[b]] = 1; }
+        }
+        var hits = s.filter(function (x) { return pset[x] === 1; });
+        row.carry = hits;
+        res.comparable += 1;
+        res.carryTotal += hits.length;
+        res.carryDist[hits.length] = (res.carryDist[hits.length] || 0) + 1;
+      }
+
+      var runs = runsOf(s).filter(function (r) { return r.length >= 2; });
+      row.runs = runs;
+      var maxRun = 0;
+      for (var r1 = 0; r1 < runs.length; r1++) { maxRun = Math.max(maxRun, runs[r1].length); }
+      if (maxRun >= 4) { res.consecDist.q4 += 1; }
+      else if (maxRun === 3) { res.consecDist.t3 += 1; }
+      else if (maxRun === 2 && runs.length >= 2) { res.consecDist.p2 += 1; }
+      else if (maxRun === 2) { res.consecDist.p1 += 1; }
+      else { res.consecDist.none += 1; }
+      if (maxRun >= 2) { res.consecAny += 1; }
+      if (maxRun >= 3) { res.consec3 += 1; }
+
+      var tg = tailGroups(s);
+      row.tails = tg;
+      var maxTail = 0;
+      var pairs2 = 0;
+      for (var t1 = 0; t1 < tg.length; t1++) {
+        maxTail = Math.max(maxTail, tg[t1].nums.length);
+        if (tg[t1].nums.length === 2) { pairs2 += 1; }
+      }
+      if (maxTail >= 3) { res.tailDist.t3 += 1; }
+      else if (maxTail === 2 && pairs2 >= 2) { res.tailDist.p2 += 1; }
+      else if (maxTail === 2) { res.tailDist.p1 += 1; }
+      else { res.tailDist.none += 1; }
+      if (maxTail >= 2) { res.tailAny += 1; }
+      if (maxTail >= 3) { res.tail3 += 1; }
+
+      res.rows.push(row);
+    }
+    res.sumMin = res.sums.length ? Math.min.apply(null, res.sums) : 0;
+    res.sumMax = res.sums.length ? Math.max.apply(null, res.sums) : 0;
+    res.sumAvg = res.sums.length ? sum(res.sums) / res.sums.length : 0;
+    res.oddMin = res.odds.length ? Math.min.apply(null, res.odds) : 0;
+    res.oddMax = res.odds.length ? Math.max.apply(null, res.odds) : 0;
+    res.oddAvg = res.odds.length ? sum(res.odds) / res.odds.length : 0;
+    res.game = game;
+    return res;
+  }
+
+  function chips(nums, cls) {
+    return nums.map(function (n) {
+      return '<span class="chip ' + (cls || '') + '">' + pad2(n) + '</span>';
+    }).join('');
+  }
+
+  function heatClass(c, max) {
+    if (max <= 0) { return 'h0'; }
+    var r = c / max;
+    if (c === 0) { return 'h0'; }
+    if (r >= 0.85) { return 'h4'; }
+    if (r >= 0.65) { return 'h3'; }
+    if (r >= 0.45) { return 'h2'; }
+    return 'h1';
+  }
+
+  function rangeLabel() {
+    var w = windowDraws();
+    if (w.length === 0) { return 'データなし'; }
+    var a = w[0];
+    var b = w[w.length - 1];
+    var f = function (d) {
+      if (typeof d.no === 'number') { return '第' + d.no + '回'; }
+      return d.date ? d.date : '（回号なし）';
+    };
+    return f(b) + ' 〜 ' + f(a) + '（' + w.length + '回分）';
+  }
+
+  function winSelect(id) {
+    var opts = [[12, '12回'], [24, '24回'], [36, '36回'], [50, '50回'], [100, '100回'], [0, '全件']];
+    var h = '<select id="' + id + '" data-set="windowSize">';
+    for (var i = 0; i < opts.length; i++) {
+      h += '<option value="' + opts[i][0] + '"' + (state.windowSize === opts[i][0] ? ' selected' : '') + '>' + opts[i][1] + '</option>';
+    }
+    return h + '</select>';
+  }
+
+  function demoBanner() {
+    var w = draws();
+    for (var i = 0; i < w.length; i++) { if (w[i].demo) { return '<div class="warn">⚠ 動作確認用の<b>ダミーデータ</b>が含まれています。実際の抽せん結果ではありません。本番利用の前に「全消去」してから実データを取り込んでください。</div>'; } }
+    return '';
+  }
+
+  function viewData() {
+    var game = g();
+    var all = draws();
+    var h = '';
+    h += demoBanner();
+    h += '<div class="card">';
+    h += '<h2 class="sec">' + game.label + ' 抽せん結果の取り込み</h2>';
+    h += '<p class="note">当せん番号を1行に1回ずつ貼り付けてください。本数字' + game.main + '個＋ボーナス' + game.bonus + '個（数字は1〜' + game.max + '）。回号・日付は自動で読み取ります。</p>';
+    h += '<p class="note">例: <code class="sm">第1900回 2024年5月2日 03 11 19 24 35 41 (07)</code> / <code class="sm">1900,2024/05/02,3,11,19,24,35,41,7</code> / 数字だけの行も可</p>';
+    h += '<label class="fld">貼り付けエリア</label>';
+    h += '<textarea id="paste" placeholder="ここに貼り付け">' + esc(pasteText) + '</textarea>';
+    h += '<label class="fld">回号が無い場合の並び順</label>';
+    h += '<select data-set="pasteOrder">'
+      + '<option value="auto"' + (state.pasteOrder === 'auto' ? ' selected' : '') + '>新しい回が上（既定）</option>'
+      + '<option value="old"' + (state.pasteOrder === 'old' ? ' selected' : '') + '>古い回が上</option>'
+      + '</select>';
+    h += '<div style="margin-top:10px">';
+    h += '<button class="btn" data-act="import-replace">解析して置き換え</button>';
+    h += '<button class="btn sub" data-act="import-merge">追加取り込み</button>';
+    h += '</div>';
+    h += '</div>';
+
+    h += '<div class="card">';
+    h += '<h2 class="sec">手入力で1回追加</h2>';
+    h += '<div class="row2">';
+    h += '<div><label class="fld">回号</label><input type="number" id="mNo" inputmode="numeric" placeholder="1900"></div>';
+    h += '<div><label class="fld">日付</label><input type="text" id="mDate" placeholder="2024/05/02"></div>';
+    h += '</div>';
+    h += '<label class="fld">本数字（' + game.main + '個・スペース区切り）</label><input type="text" id="mMain" inputmode="numeric" placeholder="3 11 19 24 35 41">';
+    h += '<label class="fld">ボーナス数字（' + game.bonus + '個）</label><input type="text" id="mBonus" inputmode="numeric" placeholder="' + (game.bonus === 1 ? '7' : '7 22') + '">';
+    h += '<div style="margin-top:10px"><button class="btn wide" data-act="manual-add">この回を追加</button></div>';
+    h += '</div>';
+
+    h += '<div class="card">';
+    h += '<h2 class="sec">保有データ（' + all.length + '件）</h2>';
+    h += '<div class="inline"><span class="muted" style="font-size:12px">集計対象</span>' + winSelect('winSelData') + '</div>';
+    if (all.length === 0) {
+      h += '<div class="empty">データがありません。<br>上の貼り付けエリアから取り込んでください。</div>';
+    } else {
+      h += '<div class="scroll" style="margin-top:8px"><table class="tb"><thead><tr><th class="l">回号</th><th class="l">日付</th><th class="l">本数字 / B</th><th></th></tr></thead><tbody>';
+      for (var i = 0; i < all.length; i++) {
+        var d = all[i];
+        var inWin = i < winSize();
+        h += '<tr' + (inWin ? '' : ' class="muted"') + '>';
+        h += '<td class="l">' + (typeof d.no === 'number' ? d.no : '-') + (inWin ? ' <span style="color:#2563eb">●</span>' : '') + '</td>';
+        h += '<td class="l">' + esc(d.date || '-') + '</td>';
+        h += '<td class="l">' + d.main.map(pad2).join(' ') + ' <b style="color:#a3123a">(' + d.bonus.map(pad2).join(' ') + ')</b></td>';
+        h += '<td><button class="mini" data-act="del-row" data-i="' + i + '">削除</button></td>';
+        h += '</tr>';
+      }
+      h += '</tbody></table></div>';
+      h += '<p class="note">● 印が集計対象（最新回から' + winSize() + '回分）です。</p>';
+    }
+    h += '<div style="margin-top:10px">';
+    h += '<button class="btn gray" data-act="export-json">JSON書き出し</button>';
+    h += '<button class="btn gray" data-act="export-csv">CSV書き出し</button>';
+    h += '<button class="btn gray" data-act="demo">ダミーデータ生成</button>';
+    h += '<button class="btn danger" data-act="clear">全消去</button>';
+    h += '</div>';
+    h += '</div>';
+    return h;
+  }
+
+  function viewFreq() {
+    var game = g();
+    var win = windowDraws();
+    var h = demoBanner();
+    h += '<div class="card">';
+    h += '<h2 class="sec">① 各数字の出現回数・出現率</h2>';
+    h += '<div class="inline">' + winSelect('winSelFreq');
+    h += '<select data-set="freqTarget">'
+      + '<option value="main"' + (state.freqTarget === 'main' ? ' selected' : '') + '>本数字のみ</option>'
+      + '<option value="bonus"' + (state.freqTarget === 'bonus' ? ' selected' : '') + '>ボーナスのみ</option>'
+      + '<option value="all"' + (state.freqTarget === 'all' ? ' selected' : '') + '>本数字＋ボーナス</option>'
+      + '</select></div>';
+    if (win.length === 0) {
+      h += '<div class="empty">データがありません。「データ」タブから取り込んでください。</div></div>';
+      return h;
+    }
+    h += '<p class="note">対象: ' + esc(rangeLabel()) + '</p>';
+
+    var f = calcFreq(win, game);
+    var counts = f[state.freqTarget];
+    var perDraw = state.freqTarget === 'main' ? game.main : (state.freqTarget === 'bonus' ? game.bonus : game.main + game.bonus);
+    var totalBalls = win.length * perDraw;
+    var expect = totalBalls / game.max;
+    var maxC = 0;
+    var i;
+    for (i = 1; i <= game.max; i++) { maxC = Math.max(maxC, counts[i]); }
+
+    var groups = groupByCount(counts, game);
+    var zeroCnt = 0;
+    for (i = 1; i <= game.max; i++) { if (counts[i] === 0) { zeroCnt += 1; } }
+
+    h += '<div class="kpi">';
+    h += '<div><b>' + win.length + '回</b><span>集計対象</span></div>';
+    h += '<div><b>' + totalBalls + '個</b><span>延べ出現数（' + win.length + '×' + perDraw + '）</span></div>';
+    h += '<div><b>' + fx(expect, 2) + '回</b><span>1数字あたり理論期待値</span></div>';
+    h += '<div><b>' + zeroCnt + '個</b><span>未出現の数字</span></div>';
+    h += '</div>';
+
+    h += '<h3 class="sub">出現回数別のまとめ（全件）</h3>';
+    h += '<div class="dist">';
+    for (i = 0; i < groups.length; i++) {
+      var gr = groups[i];
+      h += '<div><span class="lb">出現回数' + gr.count + '回 : ' + gr.nums.length + '個</span>'
+        + '<span class="muted" style="font-size:11.5px">出現率 ' + fx(rate(gr.count, win.length), 1) + '%</span>'
+        + '<div class="chips" style="flex:1 1 100%">' + chips(gr.nums, heatClass(gr.count, maxC)) + '</div></div>';
+    }
+    h += '</div>';
+    h += '<p class="note">「出現回数N回 : M個」＝ ' + win.length + '回中にN回出た数字がM個、という読み方です。個数の合計は' + game.max + '個（全数字）になります。</p>';
+
+    h += '<h3 class="sub">数字別一覧</h3>';
+    h += '<div class="inline"><select data-set="freqSort">'
+      + '<option value="num"' + (state.freqSort === 'num' ? ' selected' : '') + '>数字順</option>'
+      + '<option value="cnt"' + (state.freqSort === 'cnt' ? ' selected' : '') + '>出現回数順</option>'
+      + '</select></div>';
+    var idx = [];
+    for (i = 1; i <= game.max; i++) { idx.push(i); }
+    if (state.freqSort === 'cnt') {
+      idx.sort(function (a, b) { return counts[b] - counts[a] || a - b; });
+    }
+    h += '<div class="scroll" style="margin-top:6px"><table class="tb"><thead><tr><th class="l">数字</th><th>本</th><th>B</th><th>計</th><th>出現率</th><th class="l" style="width:70px">比率</th></tr></thead><tbody>';
+    for (i = 0; i < idx.length; i++) {
+      var n = idx[i];
+      var c = counts[n];
+      h += '<tr><td class="l"><span class="chip ' + heatClass(c, maxC) + '">' + pad2(n) + '</span></td>'
+        + '<td>' + f.main[n] + '</td><td>' + f.bonus[n] + '</td><td><b>' + f.all[n] + '</b></td>'
+        + '<td>' + fx(rate(c, win.length), 1) + '%</td>'
+        + '<td class="l"><span class="bar"><i style="width:' + (maxC > 0 ? Math.round(c / maxC * 100) : 0) + '%"></i></span></td></tr>';
+    }
+    h += '</tbody></table></div>';
+    h += '<p class="note">出現率＝該当数字の出現回数 ÷ 対象' + win.length + '回。理論値は本数字で ' + fx(rate(game.main, game.max), 1) + '%（' + game.main + '/' + game.max + '）です。</p>';
+    h += '</div>';
+    return h;
+  }
+
+  function distTable(rowsDef, denom) {
+    var h = '<table class="tb"><thead><tr><th class="l">条件</th><th>回数</th><th>出現確率</th><th class="l" style="width:70px"></th></tr></thead><tbody>';
+    for (var i = 0; i < rowsDef.length; i++) {
+      var r = rowsDef[i];
+      var p = rate(r.v, denom);
+      h += '<tr><td class="l">' + r.label + '</td><td>' + r.v + ' / ' + denom + '</td><td><b>' + fx(p, 1) + '%</b></td>'
+        + '<td class="l"><span class="bar"><i style="width:' + Math.round(Math.min(p, 100)) + '%"></i></span></td></tr>';
+    }
+    return h + '</tbody></table>';
+  }
+
+  function viewCond() {
+    var game = g();
+    var win = windowDraws();
+    var h = demoBanner();
+    h += '<div class="card">';
+    h += '<h2 class="sec">② 条件別の出現確率</h2>';
+    h += '<div class="inline">' + winSelect('winSelCond') + '</div>';
+    if (win.length === 0) {
+      h += '<div class="empty">データがありません。「データ」タブから取り込んでください。</div></div>';
+      return h;
+    }
+    var c = calcConditions();
+    h += '<p class="note">対象: ' + esc(rangeLabel()) + '</p>';
+
+    h += '<h3 class="sub">引っ張り数字（前回と同じ番号）</h3>';
+    h += '<div class="checks"><label><input type="checkbox" data-set="carryWithBonus"' + (state.carryWithBonus ? ' checked' : '') + '>前回のボーナス数字も判定に含める</label></div>';
+    if (c.comparable === 0) {
+      h += '<p class="note">前回と比較できる回がありません（2回分以上のデータが必要です）。</p>';
+    } else {
+      var maxCarry = 0;
+      Object.keys(c.carryDist).forEach(function (k) { maxCarry = Math.max(maxCarry, Number(k)); });
+      var rows = [];
+      for (var i = 0; i <= Math.max(maxCarry, 3); i++) {
+        rows.push({ label: (i === 0 ? '引っ張りなし（0個）' : '引っ張り ' + i + '個'), v: c.carryDist[i] || 0 });
+      }
+      h += distTable(rows, c.comparable);
+      var anyCarry = c.comparable - (c.carryDist[0] || 0);
+      h += '<div class="kpi">';
+      h += '<div><b>' + fx(rate(anyCarry, c.comparable), 1) + '%</b><span>1個以上の引っ張り</span></div>';
+      h += '<div><b>' + fx(c.carryTotal / c.comparable, 2) + '個</b><span>1回あたり平均</span></div>';
+      h += '<div><b>' + fx(game.main * (state.carryWithBonus ? game.main + game.bonus : game.main) / game.max, 2) + '個</b><span>理論期待値（ランダム時）</span></div>';
+      h += '</div>';
+    }
+
+    h += '<h3 class="sub">連続数字（例: 11・12・13）</h3>';
+    h += distTable([
+      { label: '連続なし', v: c.consecDist.none },
+      { label: '2連続 1組', v: c.consecDist.p1 },
+      { label: '2連続 2組以上', v: c.consecDist.p2 },
+      { label: '3連続あり', v: c.consecDist.t3 },
+      { label: '4連続以上あり', v: c.consecDist.q4 }
+    ], c.n);
+    h += '<div class="kpi">';
+    h += '<div><b>' + fx(rate(c.consecAny, c.n), 1) + '%</b><span>2連続以上を含む回</span></div>';
+    h += '<div><b>' + fx(rate(c.consec3, c.n), 1) + '%</b><span>3連続以上を含む回</span></div>';
+    h += '</div>';
+
+    h += '<h3 class="sub">末尾同一数字（例: 01・11・21）</h3>';
+    h += distTable([
+      { label: '末尾一致なし', v: c.tailDist.none },
+      { label: '2個一致 1組', v: c.tailDist.p1 },
+      { label: '2個一致 2組以上', v: c.tailDist.p2 },
+      { label: '3個一致以上あり', v: c.tailDist.t3 }
+    ], c.n);
+    h += '<div class="kpi">';
+    h += '<div><b>' + fx(rate(c.tailAny, c.n), 1) + '%</b><span>末尾2個一致以上</span></div>';
+    h += '<div><b>' + fx(rate(c.tail3, c.n), 1) + '%</b><span>末尾3個一致以上</span></div>';
+    h += '</div>';
+
+    h += '<h3 class="sub">本数字の合計値・奇数偶数</h3>';
+    h += '<div class="kpi">';
+    h += '<div><b>' + c.sumMin + '〜' + c.sumMax + '</b><span>合計値レンジ</span></div>';
+    h += '<div><b>' + fx(c.sumAvg, 1) + '</b><span>合計値の平均</span></div>';
+    h += '<div><b>' + c.oddMin + '〜' + c.oddMax + '</b><span>奇数の個数</span></div>';
+    h += '<div><b>' + fx(c.oddAvg, 2) + '</b><span>奇数の平均個数</span></div>';
+    h += '</div>';
+
+    h += '<h3 class="sub">回別の明細</h3>';
+    h += '<div class="scroll"><table class="tb"><thead><tr><th class="l">回</th><th class="l">本数字</th><th>引っ張り</th><th>連続</th><th>末尾</th><th>合計</th><th>奇</th></tr></thead><tbody>';
+    for (var r = 0; r < c.rows.length; r++) {
+      var row = c.rows[r];
+      var runTxt = row.runs.length === 0 ? '-' : row.runs.map(function (x) { return x.map(pad2).join('-'); }).join(' / ');
+      var tailTxt = row.tails.length === 0 ? '-' : row.tails.map(function (x) { return x.nums.map(pad2).join('・'); }).join(' / ');
+      h += '<tr><td class="l">' + (typeof row.d.no === 'number' ? row.d.no : (row.d.date || '-')) + '</td>'
+        + '<td class="l">' + row.d.main.map(pad2).join(' ') + '</td>'
+        + '<td>' + (row.carry === null ? '-' : (row.carry.length + (row.carry.length ? '（' + row.carry.map(pad2).join(',') + '）' : ''))) + '</td>'
+        + '<td>' + runTxt + '</td><td>' + tailTxt + '</td><td>' + row.sum + '</td><td>' + row.odd + '</td></tr>';
+    }
+    h += '</tbody></table></div>';
+    h += '</div>';
+    return h;
+  }
+
+  function sampleDist(dist, fallback) {
+    var keys = Object.keys(dist);
+    var total = 0;
+    var i;
+    for (i = 0; i < keys.length; i++) { total += dist[keys[i]]; }
+    if (total <= 0) { return fallback; }
+    var r = Math.random() * total;
+    for (i = 0; i < keys.length; i++) {
+      r -= dist[keys[i]];
+      if (r < 0) { return Number(keys[i]); }
+    }
+    return Number(keys[keys.length - 1]);
+  }
+
+  function buildWeights(counts, game, mode) {
+    var w = [0];
+    for (var n = 1; n <= game.max; n++) {
+      var c = counts[n];
+      var v;
+      if (mode === 'hot') { v = Math.pow(c + 0.6, 2.2); }
+      else if (mode === 'cold') { v = 1 / Math.pow(c + 0.7, 1.6); }
+      else if (mode === 'flat') { v = 1; }
+      else { v = c + 0.9; }
+      w.push(v);
+    }
+    return w;
+  }
+
+  function pickWeighted(weights, count, game) {
+    var pool = [];
+    var wt = [];
+    for (var n = 1; n <= game.max; n++) { pool.push(n); wt.push(weights[n]); }
+    var out = [];
+    for (var k = 0; k < count; k++) {
+      var total = sum(wt);
+      if (total <= 0) { break; }
+      var r = Math.random() * total;
+      var idx = pool.length - 1;
+      for (var i = 0; i < pool.length; i++) {
+        r -= wt[i];
+        if (r < 0) { idx = i; break; }
+      }
+      out.push(pool[idx]);
+      pool.splice(idx, 1);
+      wt.splice(idx, 1);
+    }
+    return out.sort(asc);
+  }
+
+  function evalSet(s, prevSet) {
+    var runs = runsOf(s).filter(function (r) { return r.length >= 2; });
+    var maxRun = 0;
+    for (var i = 0; i < runs.length; i++) { maxRun = Math.max(maxRun, runs[i].length); }
+    var tg = tailGroups(s);
+    var carry = 0;
+    for (var j = 0; j < s.length; j++) { if (prevSet[s[j]] === 1) { carry += 1; } }
+    var odd = 0;
+    for (var k = 0; k < s.length; k++) { if (s[k] % 2 === 1) { odd += 1; } }
+    return { runs: runs, maxRun: maxRun, tails: tg, carry: carry, odd: odd, sum: sum(s) };
+  }
+
+  function generatePicks() {
+    var game = g();
+    var win = windowDraws();
+    if (win.length < 2) { return null; }
+    var c = calcConditions();
+    var f = calcFreq(win, game);
+    var weights = buildWeights(f.all, game, state.predictMode);
+    var prev = draws()[0];
+    var prevSet = {};
+    var i;
+    for (i = 0; i < prev.main.length; i++) { prevSet[prev.main[i]] = 1; }
+    if (state.carryWithBonus) {
+      for (i = 0; i < prev.bonus.length; i++) { prevSet[prev.bonus[i]] = 1; }
+    }
+    var pConsec = rate(c.consecAny, c.n) / 100;
+    var pTail = rate(c.tailAny, c.n) / 100;
+    var sumLo = Math.floor(c.sumMin - (c.sumMax - c.sumMin) * 0.08);
+    var sumHi = Math.ceil(c.sumMax + (c.sumMax - c.sumMin) * 0.08);
+
+    var results = [];
+    var seen = {};
+    var relaxedAny = false;
+    var guardAll = 0;
+    while (results.length < state.predictCount && guardAll < 40) {
+      guardAll += 1;
+      var targetCarry = state.useCarry ? sampleDist(c.carryDist, 1) : null;
+      var needConsec = state.useConsec ? (Math.random() < pConsec) : null;
+      var needTail = state.useTail ? (Math.random() < pTail) : null;
+      var relax = 0;
+      var found = null;
+      while (relax <= 5 && !found) {
+        for (var t = 0; t < 2500; t++) {
+          var s = pickWeighted(weights, game.main, game);
+          var ev = evalSet(s, prevSet);
+          if (relax < 5 && state.useSum && (ev.sum < sumLo || ev.sum > sumHi)) { continue; }
+          if (relax < 4 && state.useOdd && (ev.odd < c.oddMin || ev.odd > c.oddMax)) { continue; }
+          if (relax < 3 && needTail !== null && (ev.tails.length > 0) !== needTail) { continue; }
+          if (relax < 2 && needConsec !== null && (ev.maxRun >= 2) !== needConsec) { continue; }
+          if (relax < 1 && targetCarry !== null && ev.carry !== targetCarry) { continue; }
+          var key = s.join('-');
+          if (seen[key]) { continue; }
+          found = { nums: s, ev: ev, relax: relax };
+          break;
+        }
+        if (!found) { relax += 1; }
+      }
+      if (!found) { continue; }
+      if (found.relax > 0) { relaxedAny = true; }
+      seen[found.nums.join('-')] = 1;
+      results.push(found);
+    }
+    return { picks: results, cond: c, prev: prev, relaxed: relaxedAny, sumLo: sumLo, sumHi: sumHi, pConsec: pConsec, pTail: pTail };
+  }
+
+  function viewPred() {
+    var game = g();
+    var win = windowDraws();
+    var h = demoBanner();
+    h += '<div class="card">';
+    h += '<h2 class="sec">◎ 統計ベースの予想（' + game.label + '）</h2>';
+    if (win.length < 2) {
+      h += '<div class="empty">予想には2回分以上のデータが必要です。</div></div>';
+      return h;
+    }
+    h += '<div class="row2">';
+    h += '<div><label class="fld">重み付けモード</label><select data-set="predictMode">'
+      + '<option value="balance"' + (state.predictMode === 'balance' ? ' selected' : '') + '>バランス（出現回数に比例）</option>'
+      + '<option value="hot"' + (state.predictMode === 'hot' ? ' selected' : '') + '>ホット重視（よく出る数字）</option>'
+      + '<option value="cold"' + (state.predictMode === 'cold' ? ' selected' : '') + '>コールド重視（穴狙い）</option>'
+      + '<option value="flat"' + (state.predictMode === 'flat' ? ' selected' : '') + '>均等（条件のみ適用）</option>'
+      + '</select></div>';
+    h += '<div><label class="fld">口数</label><select data-set="predictCount">';
+    for (var i = 1; i <= 10; i++) {
+      h += '<option value="' + i + '"' + (state.predictCount === i ? ' selected' : '') + '>' + i + '口</option>';
+    }
+    h += '</select></div></div>';
+    h += '<label class="fld">適用する条件（②の統計分布に合わせます）</label>';
+    h += '<div class="checks">'
+      + '<label><input type="checkbox" data-set="useCarry"' + (state.useCarry ? ' checked' : '') + '>引っ張り個数</label>'
+      + '<label><input type="checkbox" data-set="useConsec"' + (state.useConsec ? ' checked' : '') + '>連続数字</label>'
+      + '<label><input type="checkbox" data-set="useTail"' + (state.useTail ? ' checked' : '') + '>末尾同一</label>'
+      + '<label><input type="checkbox" data-set="useSum"' + (state.useSum ? ' checked' : '') + '>合計値レンジ</label>'
+      + '<label><input type="checkbox" data-set="useOdd"' + (state.useOdd ? ' checked' : '') + '>奇数偶数バランス</label>'
+      + '</div>';
+    h += '<div style="margin-top:12px"><button class="btn wide" data-act="gen">予想を生成する</button></div>';
+
+    if (lastPicks && lastPicks.game === state.game) {
+      var r = lastPicks.result;
+      h += '<h3 class="sub">生成結果</h3>';
+      h += '<p class="note">前回（' + (typeof r.prev.no === 'number' ? '第' + r.prev.no + '回' : '最新回') + '）: ' + r.prev.main.map(pad2).join(' ') + ' / B ' + r.prev.bonus.map(pad2).join(' ') + '</p>';
+      for (var p = 0; p < r.picks.length; p++) {
+        var pick = r.picks[p];
+        h += '<div class="pickrow"><div class="idx">' + (p + 1) + '口目</div>';
+        h += '<div class="chips">' + chips(pick.nums, 'pick') + '</div>';
+        var tailTxt = pick.ev.tails.length ? pick.ev.tails.map(function (x) { return x.nums.map(pad2).join('・'); }).join(' / ') : 'なし';
+        var runTxt = pick.ev.runs.length ? pick.ev.runs.map(function (x) { return x.map(pad2).join('-'); }).join(' / ') : 'なし';
+        h += '<div class="meta">引っ張り ' + pick.ev.carry + '個 ／ 連続 ' + runTxt + ' ／ 末尾一致 ' + tailTxt
+          + ' ／ 合計 ' + pick.ev.sum + ' ／ 奇数 ' + pick.ev.odd + '個'
+          + (pick.relax > 0 ? ' ／ <span style="color:#b45309">条件を一部緩和</span>' : '') + '</div>';
+        h += '</div>';
+      }
+      h += '<div><button class="btn sub" data-act="copy">結果をコピー</button><button class="btn gray" data-act="gen">もう一度生成</button></div>';
+      h += '<p class="note">適用レンジ: 合計 ' + r.sumLo + '〜' + r.sumHi + ' ／ 連続あり確率 ' + fx(r.pConsec * 100, 1) + '% ／ 末尾一致あり確率 ' + fx(r.pTail * 100, 1) + '%</p>';
+    }
+    h += '<p class="note">※ 宝くじの抽せんは毎回独立事象です。本アプリの統計・予想は過去傾向の可視化であり、当せんを保証するものではありません。購入は自己責任でお願いします。</p>';
+    h += '</div>';
+    return h;
+  }
+
+  function viewInfo() {
+    var h = '<div class="card">';
+    h += '<h2 class="sec">アプリ情報</h2>';
+    h += '<div class="kpi"><div><b>v' + APP_VERSION + '</b><span>アプリバージョン</span></div>'
+      + '<div><b>' + state.data.loto6.length + '件</b><span>ロト6 保有データ</span></div>'
+      + '<div><b>' + state.data.loto7.length + '件</b><span>ロト7 保有データ</span></div></div>';
+    h += '<h3 class="sub">使い方</h3>';
+    h += '<p class="note">1. 「データ」タブに当せん番号を貼り付けて取り込み（最新回から24回分以上あると分析が安定します）。<br>'
+      + '2. 「出現率」タブで ① 各数字の出現回数と出現回数別のまとめを確認。<br>'
+      + '3. 「条件確率」タブで ② 引っ張り・連続・末尾同一などの出現確率を確認。<br>'
+      + '4. 「予想」タブで②の分布に沿った候補を生成。</p>';
+    h += '<h3 class="sub">集計ルール</h3>';
+    h += '<p class="note">・対象は「最新回から遡って指定回数分」（既定24回）。<br>'
+      + '・引っ張り＝その回の本数字のうち、直前回の本数字（設定によりボーナスも）に含まれていた個数。<br>'
+      + '・連続数字＝昇順に並べたとき差が1の並び。3連続は2連続2組とは別区分で数えます。<br>'
+      + '・末尾同一＝1の位が同じ数字のグループ。3個一致は2個一致とは別区分で数えます。<br>'
+      + '・データはこの端末のブラウザ内（localStorage）にのみ保存されます。</p>';
+    h += '<h3 class="sub">バージョン履歴</h3>';
+    h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.00</td><td class="l">初版。データ取り込み、①出現回数・出現率、②条件別出現確率（引っ張り／連続／末尾同一／合計／奇偶）、統計ベース予想、ロト6・ロト7対応、PWA対応。</td></tr>';
+    h += '</tbody></table>';
+    h += '<p class="note">更新のたびに v1.01, v1.02 … と繰り上げます（大きな機能追加は v1.10、仕様変更は v2.00）。</p>';
+    h += '</div>';
+    return h;
+  }
+
+  function render() {
+    var h = '';
+    h += '<header class="app"><div class="hrow"><div class="title">ロト統計アナライザー</div>'
+      + '<div class="ver">v' + APP_VERSION + '</div></div>';
+    h += '<div class="seg">';
+    ['loto6', 'loto7'].forEach(function (k) {
+      h += '<button data-act="game" data-g="' + k + '" class="' + (state.game === k ? 'on' : '') + '">' + GAMES[k].label + '</button>';
+    });
+    h += '</div></header><main>';
+    if (state.tab === 'data') { h += viewData(); }
+    else if (state.tab === 'freq') { h += viewFreq(); }
+    else if (state.tab === 'cond') { h += viewCond(); }
+    else if (state.tab === 'pred') { h += viewPred(); }
+    else { h += viewInfo(); }
+    h += '</main><nav class="tabs">';
+    for (var i = 0; i < TABS.length; i++) {
+      h += '<button data-act="tab" data-t="' + TABS[i].key + '" class="' + (state.tab === TABS[i].key ? 'on' : '') + '">'
+        + '<em>' + TABS[i].icon + '</em>' + TABS[i].label + '</button>';
+    }
+    h += '</nav>';
+    $('app').innerHTML = h;
+    var pt = $('paste');
+    if (pt) {
+      pt.addEventListener('input', function () { pasteText = pt.value; });
+    }
+  }
+
+  function parseNumList(str, max) {
+    var m = String(str).replace(/[０-９]/g, function (c) {
+      return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+    }).match(/\d+/g);
+    if (!m) { return []; }
+    return m.map(Number).filter(function (v) { return v >= 1 && v <= max; });
+  }
+
+  function manualAdd() {
+    var game = g();
+    var main = parseNumList($('mMain').value, game.max);
+    var bonus = parseNumList($('mBonus').value, game.max);
+    if (main.length !== game.main || bonus.length !== game.bonus) {
+      alert('本数字' + game.main + '個、ボーナス' + game.bonus + '個を1〜' + game.max + 'で入力してください。');
+      return;
+    }
+    var seen = {};
+    var comb = main.concat(bonus);
+    for (var i = 0; i < comb.length; i++) {
+      if (seen[comb[i]]) { alert('数字が重複しています。'); return; }
+      seen[comb[i]] = 1;
+    }
+    var noRaw = $('mNo').value;
+    var d = {
+      no: noRaw === '' ? null : parseInt(noRaw, 10),
+      date: $('mDate').value || null,
+      main: main.sort(asc),
+      bonus: bonus.sort(asc)
+    };
+    var list = [d].concat(state.data[game.key]);
+    var seen2 = {};
+    var uniq = [];
+    for (var k = 0; k < list.length; k++) {
+      var key = drawKey(list[k]);
+      if (seen2[key]) { continue; }
+      seen2[key] = 1;
+      uniq.push(list[k]);
+    }
+    state.data[game.key] = sortDraws(uniq);
+    save();
+    render();
+  }
+
+  function download(name, text, type) {
+    try {
+      var blob = new Blob([text], { type: type });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+    } catch (e) {
+      alert('書き出しに失敗しました。');
+    }
+  }
+
+  function exportCsv() {
+    var game = g();
+    var lines = ['no,date,' + game.label + '_main,bonus'];
+    var all = draws();
+    for (var i = 0; i < all.length; i++) {
+      var d = all[i];
+      lines.push([(typeof d.no === 'number' ? d.no : ''), (d.date || ''), '"' + d.main.map(pad2).join(' ') + '"', '"' + d.bonus.map(pad2).join(' ') + '"'].join(','));
+    }
+    download(game.key + '_data.csv', lines.join('\n'), 'text/csv');
+  }
+
+  function makeDemo() {
+    if (!confirm('動作確認用のダミーデータ30回分を作成します（実際の抽せん結果ではありません）。現在のデータは置き換わります。よろしいですか？')) { return; }
+    var game = g();
+    var list = [];
+    var no = 1900;
+    for (var i = 0; i < 30; i++) {
+      var pool = [];
+      for (var n = 1; n <= game.max; n++) { pool.push(n); }
+      var picked = [];
+      for (var k = 0; k < game.main + game.bonus; k++) {
+        var idx = Math.floor(Math.random() * pool.length);
+        picked.push(pool[idx]);
+        pool.splice(idx, 1);
+      }
+      list.push({
+        no: no - i,
+        date: null,
+        main: picked.slice(0, game.main).sort(asc),
+        bonus: picked.slice(game.main).sort(asc),
+        demo: true
+      });
+    }
+    state.data[game.key] = list;
+    save();
+    render();
+  }
+
+  function copyPicks() {
+    if (!lastPicks) { return; }
+    var game = g();
+    var txt = game.label + ' 予想（v' + APP_VERSION + '）\n';
+    var r = lastPicks.result;
+    for (var i = 0; i < r.picks.length; i++) {
+      txt += (i + 1) + ': ' + r.picks[i].nums.map(pad2).join(' ') + '\n';
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function () { alert('コピーしました。'); }, function () { alert(txt); });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = txt;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); alert('コピーしました。'); }
+      catch (e) { alert(txt); }
+      document.body.removeChild(ta);
+    }
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    while (t && t !== document && !(t.getAttribute && t.getAttribute('data-act'))) { t = t.parentNode; }
+    if (!t || t === document || !t.getAttribute) { return; }
+    var act = t.getAttribute('data-act');
+    if (act === 'tab') { state.tab = t.getAttribute('data-t'); save(); render(); }
+    else if (act === 'game') { state.game = t.getAttribute('data-g'); lastPicks = null; save(); render(); }
+    else if (act === 'import-replace') { importText('replace'); }
+    else if (act === 'import-merge') { importText('merge'); }
+    else if (act === 'manual-add') { manualAdd(); }
+    else if (act === 'del-row') {
+      var i = parseInt(t.getAttribute('data-i'), 10);
+      state.data[state.game].splice(i, 1);
+      save();
+      render();
+    }
+    else if (act === 'clear') {
+      if (confirm(g().label + 'のデータを全て消去します。よろしいですか？')) {
+        state.data[state.game] = [];
+        lastPicks = null;
+        save();
+        render();
+      }
+    }
+    else if (act === 'export-json') { download(state.game + '_data.json', JSON.stringify(draws(), null, 1), 'application/json'); }
+    else if (act === 'export-csv') { exportCsv(); }
+    else if (act === 'demo') { makeDemo(); }
+    else if (act === 'gen') {
+      var res = generatePicks();
+      if (!res || res.picks.length === 0) { alert('条件に合う組み合わせを作れませんでした。条件を減らしてください。'); return; }
+      lastPicks = { game: state.game, result: res };
+      render();
+    }
+    else if (act === 'copy') { copyPicks(); }
+  });
+
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute) { return; }
+    var key = t.getAttribute('data-set');
+    if (!key) { return; }
+    if (t.type === 'checkbox') { state[key] = t.checked; }
+    else if (key === 'windowSize' || key === 'predictCount') { state[key] = parseInt(t.value, 10); }
+    else { state[key] = t.value; }
+    save();
+    render();
+  });
+
+  load();
+  render();
+
+  if ('serviceWorker' in navigator && String(location.protocol).indexOf('http') === 0) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () { });
+    });
+  }
+}());
+</script>
+</body>
+</html>
