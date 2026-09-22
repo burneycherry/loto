@@ -24,7 +24,7 @@ jobs:
           node-version: '20'
 
       - name: 解析テスト
-        run: node tools/test_parse.js
+        run: LOTO_SLEEP=0 node tools/test_parse.js
 
       - name: 当せん番号を取得
         run: node tools/fetch_mizuho.js both data 120

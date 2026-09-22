@@ -83,25 +83,17 @@ check('範囲外の数字を検出', M.validate([
 ], M.SPECS.loto6).length, 1);
 check('空の結果を検出', M.validate([], M.SPECS.loto6).length, 1);
 
-console.log('過去回リンクの抽出と優先順位');
-var base = 'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto6/index.html';
-var linksHtml = [
-  '<a href="#top">上へ</a>',
-  '<a href="javascript:void(0)">メニュー</a>',
-  '<a href="/takarakuji/check/loto/loto6/index.html">今月分</a>',
-  '<a href="./backnumber/detail.html?fromto=2120_2139&amp;type=loto6">バックナンバー</a>',
-  '<a href="/takarakuji/check/loto/loto6/index_202608.html">2026年8月分</a>',
-  '<a href="/takarakuji/check/loto/loto7/index.html">ロト7</a>',
-  '<a href="https://example.com/other.html">外部</a>',
-  '<a href="/takarakuji/check/loto/loto6/rule.pdf">ルール</a>'
-].join('\n');
-var links = M.findCandidateLinks(linksHtml, base);
-check('候補は2件', links.length, 2);
-check('バックナンバーが最優先', links[0],
-  'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto6/backnumber/detail.html?fromto=2120_2139&type=loto6');
-check('月別アーカイブも候補', links[1],
-  'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto6/index_202608.html');
-check('起点ページ自身は除外', links.indexOf(base), -1);
+console.log('月別ページのURL組み立て');
+check('ロト6 2026年8月', M.monthUrl(M.SPECS.loto6, 2026, 8),
+  'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto6/index.html?year=2026&month=8');
+check('ロト6 2026年7月', M.monthUrl(M.SPECS.loto6, 2026, 7),
+  'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto6/index.html?year=2026&month=7');
+check('ロト7 2026年8月', M.monthUrl(M.SPECS.loto7, 2026, 8),
+  'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto7/index.html?year=2026&month=8');
+check('ロト6 2025年12月', M.monthUrl(M.SPECS.loto6, 2025, 12),
+  'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto6/index.html?year=2025&month=12');
+check('前月（年またぎ）', M.prevMonth(2026, 1), { year: 2025, month: 12 });
+check('前月（通常）', M.prevMonth(2026, 9), { year: 2026, month: 8 });
 
 console.log('文字コードの自動判別');
 check('Shift_JISで読めている', /ロト6抽せん数字一覧表/.test(t6), true);
@@ -110,6 +102,62 @@ check('全角数字を半角に変換', M.extractDraws(
   + '<td>０３</td><td>０４</td><td>０５</td><td>０６</td><td>０７</td>',
   M.SPECS.loto6).length, 1);
 
+
+function monthPage(no, y, m, d, main, bonus) {
+  return '<table><tr><th>回別</th><td>第' + no + '回</td></tr>'
+    + '<tr><th>抽せん日</th><td>' + y + '年' + m + '月' + d + '日</td></tr>'
+    + '<tr><th>本数字</th>' + main.map(function (n) { return '<td>' + n + '</td>'; }).join('') + '</tr>'
+    + '<tr><th>ボーナス数字</th><td>(' + bonus + ')</td></tr>'
+    + '<tr><th>1等</th><td>1口</td><td>100,000,000円</td></tr></table>';
+}
+
+function runWalkTests(done) {
+  var pages = {};
+  var b = M.SPECS.loto6.url;
+  pages[b] = monthPage(2139, 2026, 9, 21, [3, 6, 23, 34, 36, 43], 29)
+    + monthPage(2138, 2026, 9, 17, [9, 16, 21, 26, 38, 40], 12);
+  pages[M.monthUrl(M.SPECS.loto6, 2026, 8)] = monthPage(2137, 2026, 8, 31, [1, 2, 3, 4, 5, 6], 7);
+  pages[M.monthUrl(M.SPECS.loto6, 2026, 7)] = monthPage(2136, 2026, 7, 30, [11, 12, 13, 14, 15, 16], 17);
+  pages[M.monthUrl(M.SPECS.loto6, 2026, 6)] = '<p>該当する抽せん結果はありません</p>';
+  pages[M.monthUrl(M.SPECS.loto6, 2026, 5)] = '<p>該当する抽せん結果はありません</p>';
+  pages[M.monthUrl(M.SPECS.loto6, 2026, 4)] = monthPage(2100, 2026, 4, 30, [21, 22, 23, 24, 25, 26], 27);
+
+  var asked = [];
+  function fake(url) {
+    asked.push(url);
+    if (Object.prototype.hasOwnProperty.call(pages, url)) { return Promise.resolve(pages[url]); }
+    return Promise.reject(new Error('HTTP 404'));
+  }
+
+  console.log('月を遡っての取得');
+  M.collect(M.SPECS.loto6, 120, 30, fake, []).then(function (draws) {
+    check('4件取得（当月2件＋8月1件＋7月1件）', draws.length, 4);
+    check('最新が先頭', draws[0].no, 2139);
+    check('8月分を取り込む', draws[2], {
+      no: 2137, date: '2026-08-31', main: [1, 2, 3, 4, 5, 6], bonus: [7]
+    });
+    check('空の月が2回続いたら打ち切る（4月は見に行かない）',
+      asked.indexOf(M.monthUrl(M.SPECS.loto6, 2026, 4)), -1);
+    check('要求したURLは当月と8〜5月の5件', asked.length, 5);
+    check('URLの形式', asked[1], M.monthUrl(M.SPECS.loto6, 2026, 8));
+
+    var asked2 = [];
+    function fake2(url) { asked2.push(url); return fake(url); }
+    var have = [{ no: 2139, date: '2026-09-21', main: [3, 6, 23, 34, 36, 43], bonus: [29] }];
+    return M.collect(M.SPECS.loto6, 1, 30, fake2, have).then(function (d2) {
+      check('上限に達していれば当月ページのみ取得', asked2.length, 1);
+      check('既存データを保持', d2.length, 1);
+      done();
+    });
+  }).catch(function (e) {
+    fail += 1;
+    console.log('  NG   月送り取得で例外: ' + e.message);
+    done();
+  });
+}
+
+runWalkTests(function () {
 console.log('');
 console.log('結果: ' + pass + '件成功 / ' + fail + '件失敗');
-process.exit(fail === 0 ? 0 : 1);
+  process.exit(fail === 0 ? 0 : 1);
+});

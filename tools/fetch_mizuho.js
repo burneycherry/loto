@@ -9,7 +9,8 @@
  * 例: node tools/fetch_mizuho.js both data 120
  *
  * 環境変数
- *   LOTO_PAGES  … 過去回のページを何ページまで辿るか（既定 8）
+ *   LOTO_MONTHS … 何か月前まで遡るか（既定 30）
+ *   LOTO_SLEEP  … リクエスト間隔のミリ秒（既定 1200。むやみに小さくしないこと）
  *   LOTO_URL    … 起点URLを差し替える
  *   LOTO_URLS   … 取得するURLをカンマ区切りで直接指定（巡回せずこの一覧だけを読む）
  *   LOTO_FILE   … ネットワークを使わず、保存済みHTMLファイルを解析する（動作確認用）
@@ -29,6 +30,7 @@ var SPECS = {
     max: 43,
     main: 6,
     bonus: 1,
+    minYear: 2000,
     url: 'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto6/index.html'
   },
   loto7: {
@@ -37,6 +39,7 @@ var SPECS = {
     max: 37,
     main: 7,
     bonus: 2,
+    minYear: 2013,
     url: 'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto7/index.html'
   }
 };
@@ -46,6 +49,7 @@ var DEBUG = process.env.LOTO_DEBUG === '1';
 
 function log(msg) { process.stdout.write(msg + '\n'); }
 function dbg(msg) { if (DEBUG) { process.stdout.write('  [debug] ' + msg + '\n'); } }
+var SLEEP_MS = Number(process.env.LOTO_SLEEP === undefined ? 1200 : process.env.LOTO_SLEEP);
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
 function decodeBody(buf, contentType) {
@@ -194,47 +198,31 @@ function extractDraws(html, spec) {
 }
 
 /*
- * 過去回のページへのリンクを集めます。
- * みずほの「抽せん数字一覧表」は1か月分しか載らないため、
- * 同じディレクトリ配下（例: /takarakuji/check/loto/loto6/）のHTMLと
- * backnumber を含むリンクを候補にし、過去回らしいものを優先して辿ります。
+ * みずほの「抽せん数字一覧表」は1か月分ずつの掲載で、
+ * 過去の月は index.html?year=2026&month=8 の形式で参照できます。
  */
-function findCandidateLinks(html, baseUrl) {
-  var base;
-  try { base = new URL(baseUrl); } catch (e) { return []; }
-  var dir = base.pathname.replace(/[^/]*$/, '');
-  var out = [];
-  var seen = {};
-  var re = /href\s*=\s*["']([^"']+)["']/gi;
-  var m;
-  while ((m = re.exec(html)) !== null) {
-    var href = m[1]
-      .replace(/&amp;/gi, '&')
-      .replace(/&#38;/g, '&')
-      .trim();
-    if (!href || href.charAt(0) === '#' || /^(javascript|mailto|tel):/i.test(href)) { continue; }
-    var u;
-    try { u = new URL(href, baseUrl); } catch (e2) { continue; }
-    if (u.host !== base.host) { continue; }
-    u.hash = '';
-    var abs = u.toString();
-    if (abs === baseUrl) { continue; }
-    if (/\.(pdf|csv|zip|jpg|png|gif|css|js)$/i.test(u.pathname)) { continue; }
-    var inDir = u.pathname.indexOf(dir) === 0;
-    var isBack = /backnumber/i.test(u.pathname + u.search);
-    if (!inDir && !isBack) { continue; }
-    if (!/\.html?$/i.test(u.pathname) && !u.search) { continue; }
-    if (seen[abs]) { continue; }
-    seen[abs] = 1;
-    var score = 0;
-    if (isBack) { score += 4; }
-    if (/fromto|detail/i.test(u.pathname + u.search) && isBack) { score += 2; }
-    if (/(19|20)\d{2}/.test(u.pathname + u.search)) { score += 2; }
-    if (/index\.html?$/i.test(u.pathname) && !u.search) { score -= 1; }
-    out.push({ url: abs, score: score });
-  }
-  out.sort(function (a, b) { return b.score - a.score; });
-  return out.map(function (x) { return x.url; });
+function baseUrl(spec) {
+  return process.env.LOTO_URL || spec.url;
+}
+
+function monthUrl(spec, year, month) {
+  var u = new URL(baseUrl(spec));
+  u.searchParams.set('year', String(year));
+  u.searchParams.set('month', String(month));
+  return u.toString();
+}
+
+function prevMonth(year, month) {
+  var m = month - 1;
+  var y = year;
+  if (m < 1) { m = 12; y = y - 1; }
+  return { year: y, month: m };
+}
+
+/* 日本時間での今日の年月（みずほの掲載は日本時間基準のため） */
+function todayJst() {
+  var now = new Date(Date.now() + 9 * 3600 * 1000);
+  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
 }
 
 function mergeDraws(base, add) {
@@ -249,15 +237,14 @@ function mergeDraws(base, add) {
     .sort(function (a, b) { return b.no - a.no; });
 }
 
-async function collect(spec, limit, pages) {
-  var startUrl = process.env.LOTO_URL || spec.url;
-  var draws = [];
+async function collect(spec, limit, months, fetchFn, existing) {
+  var get = fetchFn || fetchText;
+  var draws = (existing || []).slice();
 
   if (process.env.LOTO_FILE) {
-    var html0 = fs.readFileSync(process.env.LOTO_FILE, 'latin1');
-    var buf = Buffer.from(html0, 'latin1');
-    draws = extractDraws(decodeBody(buf, null), spec);
-    log('  ' + spec.label + ': ローカルファイルから ' + draws.length + '件');
+    var buf = fs.readFileSync(process.env.LOTO_FILE);
+    draws = mergeDraws(draws, extractDraws(decodeBody(buf, null), spec));
+    log('  ' + spec.label + ': ローカルファイルから 計' + draws.length + '件');
     return draws.slice(0, limit);
   }
 
@@ -265,9 +252,9 @@ async function collect(spec, limit, pages) {
     var listed = process.env.LOTO_URLS.split(',').map(function (x) { return x.trim(); })
       .filter(function (x) { return x.length > 0; });
     for (var u2 = 0; u2 < listed.length; u2++) {
-      if (u2 > 0) { await sleep(1200); }
+      if (u2 > 0) { await sleep(SLEEP_MS); }
       try {
-        var page = await fetchText(listed[u2]);
+        var page = await get(listed[u2]);
         var was = draws.length;
         draws = mergeDraws(draws, extractDraws(page, spec));
         log('  ' + spec.label + ': ' + listed[u2] + ' から ' + (draws.length - was) + '件（計 ' + draws.length + '件）');
@@ -278,37 +265,55 @@ async function collect(spec, limit, pages) {
     return draws.slice(0, limit);
   }
 
-  var html = await fetchText(startUrl);
-  draws = mergeDraws(draws, extractDraws(html, spec));
-  log('  ' + spec.label + ': 起点ページから ' + draws.length + '件');
+  /* 当月のページ */
+  var first = await get(baseUrl(spec));
+  var before0 = draws.length;
+  draws = mergeDraws(draws, extractDraws(first, spec));
+  log('  ' + spec.label + ': 当月ページから ' + (draws.length - before0) + '件（計 ' + draws.length + '件）');
 
-  var links = findCandidateLinks(html, startUrl);
-  dbg('過去回の候補リンク ' + links.length + '件');
-  var got = 0;
-  var tried = 0;
-  var maxTry = pages * 3;
-  for (var i = 0; i < links.length && got < pages && tried < maxTry && draws.length < limit; i++) {
-    tried += 1;
-    await sleep(1200);
+  /* 遡る起点の年月。最新回の抽せん日があればそこから、無ければ日本時間の今月から */
+  var cur = todayJst();
+  if (draws.length > 0 && draws[0].date) {
+    var ym = draws[0].date.split('-');
+    cur = { year: Number(ym[0]), month: Number(ym[1]) };
+  }
+
+  var emptyRun = 0;
+  for (var k = 0; k < months; k++) {
+    if (draws.length >= limit) {
+      dbg('保持件数が上限に達したため終了');
+      break;
+    }
+    cur = prevMonth(cur.year, cur.month);
+    if (cur.year < spec.minYear) {
+      dbg('発売開始年より前のため終了');
+      break;
+    }
+    var url = monthUrl(spec, cur.year, cur.month);
+    await sleep(SLEEP_MS);
+    var added = 0;
     try {
-      var sub = await fetchText(links[i]);
+      var text = await get(url);
       var before = draws.length;
-      draws = mergeDraws(draws, extractDraws(sub, spec));
-      var added = draws.length - before;
-      if (added > 0) {
-        got += 1;
-        log('  ' + spec.label + ': ' + links[i] + ' から ' + added + '件追加（計 ' + draws.length + '件）');
-        var more = findCandidateLinks(sub, links[i]);
-        for (var j = 0; j < more.length; j++) {
-          if (links.indexOf(more[j]) < 0) { links.push(more[j]); }
-        }
-      } else {
-        dbg('過去回なし: ' + links[i]);
+      draws = mergeDraws(draws, extractDraws(text, spec));
+      added = draws.length - before;
+    } catch (e6) {
+      log('  ' + spec.label + ': 取得失敗 ' + url + ' (' + e6.message + ')');
+      added = 0;
+    }
+    if (added > 0) {
+      emptyRun = 0;
+      log('  ' + spec.label + ': ' + cur.year + '年' + cur.month + '月分から ' + added + '件（計 ' + draws.length + '件）');
+    } else {
+      emptyRun += 1;
+      dbg(cur.year + '年' + cur.month + '月分: 新しい回なし');
+      if (emptyRun >= 2) {
+        dbg('既知の回に追いついたため終了');
+        break;
       }
-    } catch (e) {
-      log('  ' + spec.label + ': 取得失敗 ' + links[i] + ' (' + e.message + ')');
     }
   }
+
   return draws.slice(0, limit);
 }
 
@@ -340,7 +345,7 @@ async function main() {
   var target = process.argv[2] || 'both';
   var outDir = process.argv[3] || 'data';
   var limit = Number(process.argv[4] || 120);
-  var pages = Number(process.env.LOTO_PAGES || 8);
+  var months = Number(process.env.LOTO_MONTHS || 30);
   var keys = target === 'both' ? ['loto6', 'loto7'] : [target];
   var failed = 0;
 
@@ -350,9 +355,16 @@ async function main() {
     var spec = SPECS[keys[i]];
     if (!spec) { log('不明な対象: ' + keys[i]); failed += 1; continue; }
     log(spec.label + ' の取得を開始');
+    var outPath = path.join(outDir, spec.key + '.json');
+    var existing = [];
+    try {
+      existing = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+      if (!Array.isArray(existing)) { existing = []; }
+      log('  ' + spec.label + ': 既存データ ' + existing.length + '件');
+    } catch (e0) { existing = []; }
     var draws;
     try {
-      draws = await collect(spec, limit, pages);
+      draws = await collect(spec, limit, months, null, existing);
     } catch (e) {
       log('  ' + spec.label + ': 取得に失敗しました: ' + e.message);
       failed += 1;
@@ -364,14 +376,6 @@ async function main() {
       for (var e2 = 0; e2 < Math.min(errs.length, 5); e2++) { log('    ' + errs[e2]); }
       failed += 1;
       continue;
-    }
-    var outPath = path.join(outDir, spec.key + '.json');
-    var prev = null;
-    try { prev = fs.readFileSync(outPath, 'utf8'); } catch (e3) { prev = null; }
-    if (prev) {
-      try {
-        draws = mergeDraws(JSON.parse(prev), draws).slice(0, limit);
-      } catch (e4) { /* 壊れていれば新しい内容で置き換える */ }
     }
     var json = JSON.stringify(draws, null, 1) + '\n';
     fs.writeFileSync(outPath, json, 'utf8');
@@ -390,7 +394,9 @@ module.exports = {
   decodeBody: decodeBody,
   htmlToText: htmlToText,
   extractDraws: extractDraws,
-  findCandidateLinks: findCandidateLinks,
+  monthUrl: monthUrl,
+  prevMonth: prevMonth,
+  collect: collect,
   mergeDraws: mergeDraws,
   validate: validate
 };
