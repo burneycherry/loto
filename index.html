@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.51';
+  var APP_VERSION = '1.52';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -1088,14 +1088,19 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
    * 帯はその回より前のデータだけで決めます。対象期間にその回自身を含めると、
    * 当せん番号は自分自身で出現回数が1増えるぶん必ず上の帯へ押し上げられ、
    * 加熱帯が1個ぶん水増しされるためです（予想するときの条件とも一致しません）。
+   * 数えるのは、直前のデータが対象回数ぶんそろった回だけです。窓が短いと帯の母数
+   * そのものが変わり（ロト6の10回窓では加熱帯が17.9個、200回窓では12.6個）、
+   * 短い窓の回ほど加熱帯が多めに出て、予想で使う帯と条件が合わなくなるためです。
    */
   function bandComposition(game) {
     var all = draws();
     var n = winSize();
     var map = {};
     var used = 0;
+    var span = n;
+    var shortWin = false;
     var approx = false;
-    var i, p, k;
+    var i;
 
     function add(pattern) {
       var key = patternKey(pattern);
@@ -1106,10 +1111,31 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       used += 1;
     }
 
-    for (i = 0; i < n; i++) {
-      var back = all.slice(i + 1, i + 1 + n);
-      if (back.length < 10) { break; }
-      add(bandPattern(all[i].main, bandInfo(back, game)));
+    /* 直前 size 回がそろった回だけを、その size 回で判定した帯で数えます */
+    function collect(size) {
+      for (var k = 0; k < size; k++) {
+        var back = all.slice(k + 1, k + 1 + size);
+        if (back.length < size) { break; }
+        add(bandPattern(all[k].main, bandInfo(back, game)));
+      }
+    }
+
+    collect(n);
+
+    if (used < 10) {
+      /*
+       * 対象期間ぶんそろう回が少ないときは、取れるだけ短い窓に全部そろえ直します。
+       * 標本の数は、窓を保有件数の半分にしたときに一番多く取れます。
+       * 長さの違う窓を混ぜるより、短くても条件がそろっている方が読み違えにくいためです。
+       */
+      var half = Math.floor(all.length / 2);
+      if (half >= 10 && half > used) {
+        map = {};
+        used = 0;
+        shortWin = true;
+        span = half;
+        collect(half);
+      }
     }
 
     if (used === 0) {
@@ -1121,7 +1147,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 
     var list = Object.keys(map).map(function (key) { return map[key]; });
     list.sort(function (a, b) { return b.count - a.count || b.hot - a.hot; });
-    return { list: list, used: used, approx: approx };
+    return { list: list, used: used, span: span, win: n, total: all.length, shortWin: shortWin, approx: approx };
   }
 
   function sampleComposition(comp) {
@@ -1319,9 +1345,19 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       h += '<p class="note" style="color:#b45309">履歴が足りないため、対象期間そのもので帯を決めて数えています。'
         + 'この数え方では当せん番号が自分自身で出現回数を1増やすぶん、加熱帯が多めに出ます。'
         + 'データを増やすと正しい数え方に切り替わります。</p>';
+    } else if (comp.shortWin) {
+      h += '<p class="note" style="color:#b45309">直前' + comp.win + '回がそろう回が足りないため、'
+        + '帯の判定を直前' + comp.span + '回にそろえて' + comp.used + '回ぶん数えています。'
+        + '予想で使う帯は直前' + comp.win + '回で決めるので、構成のかたより方は少し変わります。'
+        + (comp.win >= comp.total
+          ? '集計対象を' + comp.span + '回以下にするか、データを増やすと、そろいます。'
+          : '保有が' + (comp.win + 10) + '件になると、そろいます。')
+        + '</p>';
     } else {
-      h += '<p class="note">過去' + comp.used + '回ぶんを集計しています。各回の帯は、その回より前のデータだけで決めています'
-        + '（その回自身を含めると加熱帯が1個ぶん水増しされるため）。</p>';
+      h += '<p class="note">直前' + comp.span + '回がそろった' + comp.used + '回ぶんを集計しています。'
+        + '各回の帯は、その回より前のデータだけで決めています'
+        + '（その回自身を含めると加熱帯が1個ぶん水増しされるため）。'
+        + '窓の長さがそろわない回は数えていません。</p>';
     }
     return h;
   }
@@ -1391,7 +1427,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       h += '<p class="note"' + (total === game.main ? '' : ' style="color:#b91c1c"') + '>合計 ' + total
         + '個 / ' + game.main + '個' + (total === game.main ? '' : '（合計を' + game.main + '個にしてください）') + '</p>';
     } else {
-      h += '<p class="note">過去' + comp.used + '回で実際にあった組み合わせの中から、出現した回数の多いものほど選ばれやすい形で抽せんします。下の表がその内訳です。</p>';
+      h += '<p class="note">過去' + comp.used + '回で実際にあった組み合わせの中から、出現した回数の多いものほど選ばれやすい形で抽せんします。'
+        + '数えているのは、帯の判定に直前' + comp.span + '回ぶんがそろった回だけです。下の表がその内訳です。</p>';
       h += compTable(comp);
     }
 
@@ -1502,6 +1539,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + 'どの組み合わせも当せん確率は同じです。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.52</td><td class="l">頻度帯の組み合わせを数えるとき、帯の判定に対象回数ぶんの履歴がそろった回だけを使うようにしました。これまでは古い回ほど短い履歴で帯を決めており、短い窓では加熱帯の母数が膨らむぶん、実績が加熱帯寄りに出ていました。保有データが対象回数の2倍に足りないときは、取れるだけ短い窓に全部そろえて数え、その旨を表示します。</td></tr>';
     h += '<tr><td class="l">v1.51</td><td class="l">当せん番号の自動取得の仕組みを削除しました。みずほ銀行がGitHub Actionsからの接続を拒否するため実現できず、v1.30でアプリ側の読み込みも廃止していたためです。取り込みは一覧ページの貼り付けだけになります。</td></tr>';
     h += '<tr><td class="l">v1.50</td><td class="l">生成した予想を1口ずつ作り直せるようにしました。他の口はそのまま残ります。</td></tr>';
     h += '<tr><td class="l">v1.41</td><td class="l">頻度帯の組み合わせを数えるとき、その回自身を含めていたのを修正しました。当せん番号は自分で出現回数を1増やすため、加熱帯がちょうど1個ぶん水増しされていました。各回の帯は、その回より前のデータだけで決めます。</td></tr>';
