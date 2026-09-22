@@ -9,13 +9,40 @@
 
 ## ブランチと公開
 
-- 作業ブランチは `claude/nifty-mccarthy-gzqj7n`。ここに push し、区切りがついたら `main` へマージする。
-- GitHub Pages は作業ブランチを配信している。**push した時点で公開物が入れ替わる**ので、
+- **開発は `main` から新しいブランチを切って行う。** `main` へ直接 push しない。
+  ブランチ名は任意（`claude/…` でも `feature/…` でもよい）。
+- 一区切りついたらテストを通して push し、`main` へ早送りマージして push する。
+  `git push -u origin <ブランチ名>` で push する。タグの push は環境によって
+  拒否されることがある（その場合はローカルにタグだけ残す）。
+- **公開（GitHub Pages）の配信元に push した時点で、公開物が入れ替わる。**
   壊れた状態を push しない（後述のテストを必ず通してから push する）。
-  `main` を配信元に切り替える場合は Settings → Pages で変更する。
-- `git push -u origin claude/nifty-mccarthy-gzqj7n` で push する。タグの push は
-  環境によって拒否されることがある（その場合はローカルにタグだけ残す）。
+  配信元は Settings → Pages で確認する。`main` にしておくと、
+  マージした時点で公開されるので分かりやすい。
+- v1.51 までの開発はブランチ `claude/nifty-mccarthy-gzqj7n` で行った。
+  その時点の Pages の配信元はこのブランチだった。
 - コミットメッセージ・コメント・画面の文言はすべて日本語。
+
+## アプリの構造
+
+`index.html` 1ファイル（約1700行）に、CSS と JavaScript を同梱している。
+JavaScript は1つの即時実行関数の中にあり、外に出しているものは無い。
+おおよそ次の順で並んでいる。
+
+| 範囲 | 中身 |
+| - | - |
+| 設定と小道具 | `APP_VERSION`、`GAMES`（ロト6/7の定義）、`state`、`save` / `load`（localStorage） |
+| データ取り込み | `parseDraws`（1行1回）、`parseBlocks`（ページをコピーした形式）、`importText`、`mergeInto` |
+| 集計 | `calcFreq`（出現回数）、`calcConditions`（引っ張り・連続・末尾・合計・奇数） |
+| 頻度帯 | `bandInfo`（帯の判定）、`bandComposition`（帯の組み合わせ）、`pickByBands` |
+| 予想 | `predictContext`（材料をまとめる）、`generateOne`（1口）、`generatePicks`、`regenOne`（作り直し） |
+| 画面 | `viewData` / `viewFreq` / `viewCond` / `viewPred` / `viewInfo`、`render`（毎回まるごと描き直す） |
+
+画面は状態が変わるたびに `render()` で作り直す。イベントは `document` 上の
+1つのハンドラに集約し、`data-act`（動作）と `data-set`（設定の変更）で振り分ける。
+
+`tools/test_app.js` は `index.html` の `<script>` を取り出し、DOM・localStorage・fetch を
+差し替えた関数として実行して、描画結果の文字列を検査する。
+新しいセッションでまず動かすとよい。
 
 ## コーディングの決まり
 
@@ -36,7 +63,7 @@
 
 ## テスト
 
-push の前に**必ず両方**通す。どちらも失敗したら push しない。
+push の前に**必ず通す**。失敗したら push しない。
 
 ```
 node tools/test_app.js
