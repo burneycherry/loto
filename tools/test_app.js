@@ -464,7 +464,7 @@ console.log('帯の集計に自分自身を含めないこと');
  * 43で互いに異なる7つのずらし幅を使うので、6個の本数字とボーナスは必ず重複しない。
  */
 var MECH = [];
-for (var mi = 0; mi < 40; mi++) {
+for (var mi = 0; mi < 48; mi++) {
   var offs = [0, 5, 11, 17, 23, 31, 37];
   var nums = offs.map(function (o) { return ((mi * 7 + o) % 43) + 1; });
   MECH.push({ no: 900 - mi, date: null, main: nums.slice(0, 6).sort(function (a, b) { return a - b; }), bonus: [nums[6]] });
@@ -515,17 +515,17 @@ function sortedPairs(o) {
   return Object.keys(o).sort().map(function (k) { return k + ':' + o[k]; });
 }
 check('その回より前だけで数えた結果と一致する', sortedPairs(shown), sortedPairs(exp.map));
-check('満了した16回ぶんだけを集計している', exp.used, 16);
+check('窓も標本数もそろった24回ぶんを集計している', exp.used, 24);
 check('自分自身を含める数え方には戻っていない',
   mechHtml.indexOf('履歴が足りないため') < 0, true);
 has('前のデータだけで決めていると明記', mech.text(), 'その回より前のデータだけで決めています');
-has('満了した回だけを数えたと明記', mech.text(), '直前24回がそろった16回ぶんを集計しています');
+has('そろった回だけを数えたと明記', mech.text(), '直前24回がそろった24回ぶんを集計しています');
 check('窓が短い回を混ぜていない', mech.text().indexOf('窓の長さがそろわない回は数えていません') >= 0, true);
 
 console.log('窓の長さがそろわない回を混ぜないこと');
 /*
- * 直前24回がそろう回が10件に満たない並び。取れるだけ短い窓に全部そろえて
- * 数え直すことを確かめる。作り物であり当せん番号ではない。
+ * 保有が対象回数の2倍に足りない並び（30件・対象24回）。窓と標本数の両方が
+ * そろう長さに揃え直すことを確かめる。作り物であり当せん番号ではない。
  */
 var HALF = MECH.slice(0, 30);
 var halfBoot = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: HALF, loto7: [] } } });
@@ -534,7 +534,8 @@ var halfText = halfBoot.text();
 var expHalf = expectedComposition(HALF, 15, 43, 6);
 check('直前15回にそろえて15回ぶん数える', expHalf.used, 15);
 has('そろえた長さを伝える', halfText, '帯の判定を直前15回にそろえて15回ぶん数えています');
-has('必要な保有件数を伝える', halfText, '保有が34件になると');
+has('必要な保有件数を伝える', halfText, '保有が48件になると');
+check('揃え直した窓と標本数が一致する', expHalf.used, 15);
 check('自分自身を含める数え方には落ちていない',
   halfText.indexOf('履歴が足りないため') < 0, true);
 
@@ -552,12 +553,22 @@ check('短い窓にそろえた結果と一致する',
 var allWin = boot({ saved: { game: 'loto6', windowSize: 0, data: { loto6: MECH, loto7: [] } } });
 allWin.click({ 'data-act': 'tab', 'data-t': 'cond' });
 var allText = allWin.text();
-var expAll = expectedComposition(MECH, 20, 43, 6);
-check('全件でも20回にそろえて20回ぶん数える', expAll.used, 20);
-has('全件のときも長さをそろえる', allText, '帯の判定を直前20回にそろえて20回ぶん数えています');
-has('全件のときの直し方を伝える', allText, '集計対象を20回以下にするか');
+var expAll = expectedComposition(MECH, 24, 43, 6);
+check('全件でも24回にそろえて24回ぶん数える', expAll.used, 24);
+has('全件のときも長さをそろえる', allText, '帯の判定を直前24回にそろえて24回ぶん数えています');
+has('全件のときの直し方を伝える', allText, '集計対象を24回以下にするか');
 check('全件で長さの違う窓を混ぜていない',
   sortedPairs(shownComposition(allWin.html())), sortedPairs(expAll.map));
+
+/* 対象12回なら保有24件でそろう（対象の2倍が必要という関係を直接確かめる） */
+var pairBoot = boot({ saved: { game: 'loto6', windowSize: 12, data: { loto6: MECH.slice(0, 24), loto7: [] } } });
+pairBoot.click({ 'data-act': 'tab', 'data-t': 'cond' });
+has('12回なら保有24件でそろう', pairBoot.text(), '直前12回がそろった12回ぶんを集計しています');
+var oneShort = boot({ saved: { game: 'loto6', windowSize: 12, data: { loto6: MECH.slice(0, 23), loto7: [] } } });
+oneShort.click({ 'data-act': 'tab', 'data-t': 'cond' });
+has('1件足りないと標本不足を伝える', oneShort.text(), '標本は11回ぶんで、対象回数（12回）には足りません');
+has('そろう保有件数を伝える', oneShort.text(), '保有が24件になると、12回ぶんそろいます');
+check('足りないときも窓は縮めない', oneShort.text().indexOf('にそろえて') < 0, true);
 
 var few = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: REAL8, loto7: [] } } });
 few.click({ 'data-act': 'tab', 'data-t': 'cond' });
