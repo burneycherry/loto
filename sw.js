@@ -1,4 +1,4 @@
-var APP_VERSION = '1.00';
+var APP_VERSION = '1.10';
 var CACHE_NAME = 'loto-stats-v' + APP_VERSION;
 var ASSETS = [
   './',
@@ -32,6 +32,13 @@ self.addEventListener('activate', function (e) {
 
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') { return; }
+  var sameOrigin = false;
+  try {
+    sameOrigin = new URL(e.request.url).origin === self.location.origin;
+  } catch (err) {
+    sameOrigin = false;
+  }
+  if (!sameOrigin) { return; }
   e.respondWith(
     fetch(e.request).then(function (res) {
       var copy = res.clone();

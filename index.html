@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.00';
+  var APP_VERSION = '1.10';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -332,11 +332,15 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     useSum: true,
     useOdd: true,
     pasteOrder: 'auto',
+    remoteBase: 'https://raw.githubusercontent.com/burneycherry/loto/main/data',
+    autoFetch: false,
     data: { loto6: [], loto7: [] }
   };
 
   var pasteText = '';
   var lastPicks = null;
+  var fetchMsg = '';
+  var fetchErr = false;
 
   function $(id) { return document.getElementById(id); }
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -377,6 +381,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
         useSum: state.useSum,
         useOdd: state.useOdd,
         pasteOrder: state.pasteOrder,
+        remoteBase: state.remoteBase,
+        autoFetch: state.autoFetch,
         data: state.data
       }));
     } catch (e) { /* 保存できない環境では無視 */ }
@@ -390,7 +396,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       if (!o || typeof o !== 'object') { return; }
       var keys = ['game', 'windowSize', 'carryWithBonus', 'freqTarget', 'freqSort',
         'predictMode', 'predictCount', 'useCarry', 'useConsec', 'useTail',
-        'useSum', 'useOdd', 'pasteOrder'];
+        'useSum', 'useOdd', 'pasteOrder', 'remoteBase', 'autoFetch'];
       for (var i = 0; i < keys.length; i++) {
         if (typeof o[keys[i]] !== 'undefined') { state[keys[i]] = o[keys[i]]; }
       }
@@ -519,6 +525,99 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var msg = r.draws.length + '件を取り込みました（保有 ' + merged.length + '件）。';
     if (r.errors.length) { msg += '\n読み飛ばし ' + r.errors.length + '行:\n' + r.errors.slice(0, 5).join('\n'); }
     alert(msg);
+  }
+
+  function mergeInto(gameKey, incoming) {
+    var list = incoming.concat(state.data[gameKey]);
+    var seen = {};
+    var uniq = [];
+    for (var i = 0; i < list.length; i++) {
+      var key = drawKey(list[i]);
+      if (seen[key]) { continue; }
+      seen[key] = 1;
+      uniq.push(list[i]);
+    }
+    var before = state.data[gameKey].length;
+    state.data[gameKey] = sortDraws(uniq);
+    return state.data[gameKey].length - before;
+  }
+
+  function normalizeRemote(list, game) {
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var d = list[i];
+      if (!d || !Array.isArray(d.main) || !Array.isArray(d.bonus)) { continue; }
+      if (d.main.length !== game.main || d.bonus.length !== game.bonus) { continue; }
+      var all = d.main.concat(d.bonus);
+      var seen = {};
+      var ok = true;
+      for (var j = 0; j < all.length; j++) {
+        var v = all[j];
+        if (typeof v !== 'number' || !(v >= 1 && v <= game.max) || seen[v]) { ok = false; break; }
+        seen[v] = 1;
+      }
+      if (!ok) { continue; }
+      out.push({
+        no: typeof d.no === 'number' ? d.no : null,
+        date: typeof d.date === 'string' ? d.date : null,
+        main: d.main.slice().sort(asc),
+        bonus: d.bonus.slice().sort(asc)
+      });
+    }
+    return out;
+  }
+
+  function setFetchMsg(msg, isErr) {
+    fetchMsg = msg;
+    fetchErr = !!isErr;
+    var el = $('fetchStatus');
+    if (el) {
+      el.innerHTML = msg ? '<p class="note"' + (isErr ? ' style="color:#b91c1c"' : '') + '>' + esc(msg) + '</p>' : '';
+    }
+  }
+
+  function fetchRemote(silent) {
+    var game = g();
+    if (typeof fetch !== 'function') {
+      setFetchMsg('このブラウザは自動取得に対応していません。貼り付けで取り込んでください。', true);
+      return;
+    }
+    var urls = [];
+    var base = String(state.remoteBase || '').replace(/\/+$/, '');
+    if (base) { urls.push(base + '/' + game.key + '.json'); }
+    var rel = './data/' + game.key + '.json';
+    if (urls.indexOf(rel) < 0) { urls.push(rel); }
+    setFetchMsg('取得中…', false);
+    var i = 0;
+    function step() {
+      if (i >= urls.length) {
+        setFetchMsg(silent ? '' : '取得できませんでした。取得元URLと通信環境を確認してください（みずほのサイトを直接読み込むことはブラウザの制限でできません）。', true);
+        return;
+      }
+      var url = urls[i];
+      i += 1;
+      fetch(url, { cache: 'no-store' }).then(function (res) {
+        if (!res.ok) { throw new Error('HTTP ' + res.status); }
+        return res.text();
+      }).then(function (txt) {
+        var incoming = null;
+        var parsed = null;
+        try { parsed = JSON.parse(txt); } catch (e) { parsed = null; }
+        if (parsed && Object.prototype.toString.call(parsed) === '[object Array]') {
+          incoming = normalizeRemote(parsed, game);
+        } else {
+          incoming = parseDraws(txt, game).draws;
+        }
+        if (!incoming || incoming.length === 0) { throw new Error('有効なデータがありません'); }
+        var added = mergeInto(game.key, incoming);
+        save();
+        setFetchMsg(game.label + ' を取得しました（読込 ' + incoming.length + '件 / 新規 ' + added + '件 / 保有 ' + state.data[game.key].length + '件）。', false);
+        render();
+      }).catch(function () {
+        step();
+      });
+    }
+    step();
   }
 
   function calcFreq(win, game) {
@@ -716,6 +815,16 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     h += '<button class="btn" data-act="import-replace">解析して置き換え</button>';
     h += '<button class="btn sub" data-act="import-merge">追加取り込み</button>';
     h += '</div>';
+    h += '</div>';
+
+    h += '<div class="card">';
+    h += '<h2 class="sec">みずほのデータを自動取得</h2>';
+    h += '<p class="note">GitHub Actions が1日1回みずほ銀行のページから当せん番号を取得し、保存したJSON（data/' + game.key + '.json）を読み込みます。ブラウザからみずほのサイトを直接読むことはCORS制限でできないため、この方式です。</p>';
+    h += '<label class="fld">取得元（ベースURL）</label>';
+    h += '<input type="text" id="remoteBase" data-set="remoteBase" value="' + esc(state.remoteBase) + '" placeholder="https://raw.githubusercontent.com/ユーザー名/loto/main/data">';
+    h += '<div class="checks" style="margin-top:8px"><label><input type="checkbox" data-set="autoFetch"' + (state.autoFetch ? ' checked' : '') + '>起動時に自動で取得する</label></div>';
+    h += '<div style="margin-top:10px"><button class="btn wide" data-act="fetch-remote">最新データを取得して追加</button></div>';
+    h += '<div id="fetchStatus">' + (fetchMsg ? '<p class="note"' + (fetchErr ? ' style="color:#b91c1c"' : '') + '>' + esc(fetchMsg) + '</p>' : '') + '</div>';
     h += '</div>';
 
     h += '<div class="card">';
@@ -1104,7 +1213,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '<div><b>' + state.data.loto6.length + '件</b><span>ロト6 保有データ</span></div>'
       + '<div><b>' + state.data.loto7.length + '件</b><span>ロト7 保有データ</span></div></div>';
     h += '<h3 class="sub">使い方</h3>';
-    h += '<p class="note">1. 「データ」タブに当せん番号を貼り付けて取り込み（最新回から24回分以上あると分析が安定します）。<br>'
+    h += '<p class="note">1. 「データ」タブで「最新データを取得して追加」を押すか、当せん番号を貼り付けて取り込み（最新回から24回分以上あると分析が安定します）。<br>'
       + '2. 「出現率」タブで ① 各数字の出現回数と出現回数別のまとめを確認。<br>'
       + '3. 「条件確率」タブで ② 引っ張り・連続・末尾同一などの出現確率を確認。<br>'
       + '4. 「予想」タブで②の分布に沿った候補を生成。</p>';
@@ -1116,6 +1225,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '・データはこの端末のブラウザ内（localStorage）にのみ保存されます。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.10</td><td class="l">みずほ銀行の当せん番号を自動取得する仕組みを追加。GitHub Actions が1日1回取得したJSONをアプリから読み込みます（起動時の自動取得にも対応）。</td></tr>';
     h += '<tr><td class="l">v1.00</td><td class="l">初版。データ取り込み、①出現回数・出現率、②条件別出現確率（引っ張り／連続／末尾同一／合計／奇偶）、統計ベース予想、ロト6・ロト7対応、PWA対応。</td></tr>';
     h += '</tbody></table>';
     h += '<p class="note">更新のたびに v1.01, v1.02 … と繰り上げます（大きな機能追加は v1.10、仕様変更は v2.00）。</p>';
@@ -1278,6 +1388,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     else if (act === 'import-replace') { importText('replace'); }
     else if (act === 'import-merge') { importText('merge'); }
     else if (act === 'manual-add') { manualAdd(); }
+    else if (act === 'fetch-remote') { fetchRemote(false); }
     else if (act === 'del-row') {
       var i = parseInt(t.getAttribute('data-i'), 10);
       state.data[state.game].splice(i, 1);
@@ -1318,6 +1429,10 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 
   load();
   render();
+
+  if (state.autoFetch && navigator.onLine !== false) {
+    fetchRemote(true);
+  }
 
   if ('serviceWorker' in navigator && String(location.protocol).indexOf('http') === 0) {
     window.addEventListener('load', function () {

@@ -1,0 +1,40 @@
+name: みずほ当せん番号の取得
+
+on:
+  schedule:
+    # 12:00 UTC = 21:00 JST（ロト6は月・木、ロト7は金に抽せん。毎日確認します）
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-loto
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 当せん番号を取得
+        run: node tools/fetch_mizuho.js both data 120
+
+      - name: 変更があればコミット
+        run: |
+          if [ -n "$(git status -s data)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data
+            git commit -m "データ更新: みずほ当せん番号 ($(date -u +%Y/%m/%d))"
+            git push
+            echo "コミットしました"
+          else
+            echo "変更なし"
+          fi
