@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.50';
+  var APP_VERSION = '1.51';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -1502,6 +1502,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + 'どの組み合わせも当せん確率は同じです。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.51</td><td class="l">当せん番号の自動取得の仕組みを削除しました。みずほ銀行がGitHub Actionsからの接続を拒否するため実現できず、v1.30でアプリ側の読み込みも廃止していたためです。取り込みは一覧ページの貼り付けだけになります。</td></tr>';
     h += '<tr><td class="l">v1.50</td><td class="l">生成した予想を1口ずつ作り直せるようにしました。他の口はそのまま残ります。</td></tr>';
     h += '<tr><td class="l">v1.41</td><td class="l">頻度帯の組み合わせを数えるとき、その回自身を含めていたのを修正しました。当せん番号は自分で出現回数を1増やすため、加熱帯がちょうど1個ぶん水増しされていました。各回の帯は、その回より前のデータだけで決めます。</td></tr>';
     h += '<tr><td class="l">v1.40</td><td class="l">予想を頻度帯（加熱帯・標準帯・低頻度帯）による方式に作り替えました。過去の当せん番号が各帯から何個ずつ出ていたかを数え、その構成に合わせて選びます。個数を自分で決めることもできます。ダミーデータ生成と、誤解を招く説明文を削除しました。</td></tr>';
