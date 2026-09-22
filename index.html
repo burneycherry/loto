@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.13';
+  var APP_VERSION = '1.14';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -1249,6 +1249,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '・データはこの端末のブラウザ内（localStorage）にのみ保存されます。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.14</td><td class="l">みずほへの接続が拒否された（403）ため、一般的なブラウザと同じ要求ヘッダで取得するように変更。</td></tr>';
     h += '<tr><td class="l">v1.13</td><td class="l">取得元の指定を分かりやすく変更。既定で同じ場所の data/ を読むようにし、みずほのURLが入っていた場合は警告して戻せるようにしました。ワークフローは push でも動くようにし、ブランチのままでも取得できます。</td></tr>';
     h += '<tr><td class="l">v1.12</td><td class="l">過去回の取得方法を月別ページ（index.html?year=2026&amp;month=8 形式）を遡る方式に変更。既知の回に追いつくと打ち切るため、日々の取得は1リクエストで済みます。</td></tr>';
     h += '<tr><td class="l">v1.11</td><td class="l">取得先URLをみずほの「抽せん数字一覧表」（takarakuji/check/loto/…）に修正。月別ページの見出しにある回号を誤って取り込まないよう解析を検証し、過去回ページの巡回を改善。</td></tr>';

@@ -11,6 +11,7 @@
  * 環境変数
  *   LOTO_MONTHS … 何か月前まで遡るか（既定 30）
  *   LOTO_SLEEP  … リクエスト間隔のミリ秒（既定 1200。むやみに小さくしないこと）
+ *   LOTO_UA     … User-Agent を差し替える
  *   LOTO_URL    … 起点URLを差し替える
  *   LOTO_URLS   … 取得するURLをカンマ区切りで直接指定（巡回せずこの一覧だけを読む）
  *   LOTO_FILE   … ネットワークを使わず、保存済みHTMLファイルを解析する（動作確認用）
@@ -44,7 +45,9 @@ var SPECS = {
   }
 };
 
-var UA = 'loto-stats-bot/1.0 (+https://github.com/burneycherry/loto)';
+var UA = process.env.LOTO_UA
+  || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
+    + '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 var DEBUG = process.env.LOTO_DEBUG === '1';
 
 function log(msg) { process.stdout.write(msg + '\n'); }
@@ -72,17 +75,25 @@ function decodeBody(buf, contentType) {
   }
 }
 
-async function fetchText(url) {
+async function fetchText(url, referer) {
   dbg('GET ' + url);
-  var res = await fetch(url, {
-    headers: {
-      'User-Agent': UA,
-      'Accept': 'text/html,application/xhtml+xml,text/csv,*/*',
-      'Accept-Language': 'ja'
-    },
-    redirect: 'follow'
-  });
-  if (!res.ok) { throw new Error('HTTP ' + res.status + ' : ' + url); }
+  var headers = {
+    'User-Agent': UA,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Upgrade-Insecure-Requests': '1'
+  };
+  if (referer) { headers.Referer = referer; }
+  var res = await fetch(url, { headers: headers, redirect: 'follow' });
+  if (!res.ok) {
+    if (res.status === 403) {
+      throw new Error('HTTP 403（アクセスを拒否されました。'
+        + 'User-Agent が弾かれているか、実行元のIPが拒否されている可能性があります）: ' + url);
+    }
+    throw new Error('HTTP ' + res.status + ' : ' + url);
+  }
   var buf = await res.arrayBuffer();
   return decodeBody(buf, res.headers.get('content-type'));
 }
@@ -293,7 +304,7 @@ async function collect(spec, limit, months, fetchFn, existing) {
     await sleep(SLEEP_MS);
     var added = 0;
     try {
-      var text = await get(url);
+      var text = await get(url, baseUrl(spec));
       var before = draws.length;
       draws = mergeDraws(draws, extractDraws(text, spec));
       added = draws.length - before;

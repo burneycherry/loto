@@ -6,7 +6,7 @@
 
 iOS Safari / ホーム画面へ追加したPWAでの利用を主対象にしつつ、Android Chromeでも動作します。
 
-現在のバージョン: **v1.13**（`VERSION` を参照）
+現在のバージョン: **v1.14**（`VERSION` を参照）
 
 ## ファイル構成
 
@@ -94,6 +94,7 @@ node tools/fetch_mizuho.js both data 120
 | `LOTO_URL` | 起点URLの差し替え |
 | `LOTO_URLS` | 取得するURLをカンマ区切りで直接指定（月送りせずこの一覧だけを読む） |
 | `LOTO_SLEEP` | リクエスト間隔のミリ秒（既定 1200。テスト用。むやみに小さくしない） |
+| `LOTO_UA` | User-Agent を差し替える |
 | `LOTO_FILE` | 保存済みHTMLを解析（ネットワーク不要。動作確認用） |
 | `LOTO_DEBUG` | `1` で詳細ログ |
 
