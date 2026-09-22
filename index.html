@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.41';
+  var APP_VERSION = '1.50';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -1170,7 +1170,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     };
   }
 
-  function generatePicks() {
+  /* 予想を作るための材料を1か所にまとめます（1口ずつの作り直しでも同じ材料を使います） */
+  function predictContext() {
     var game = g();
     var win = windowDraws();
     if (win.length < 2) { return null; }
@@ -1186,68 +1187,122 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     }
 
     var manual = null;
+    var error = null;
     if (state.bandMode === 'manual') {
       manual = { hot: state.bandHot, mid: state.bandMid, cold: state.bandCold };
       if (manual.hot + manual.mid + manual.cold !== game.main) {
-        return { error: '帯ごとの個数の合計を' + game.main + '個にしてください。', bi: bi, comp: comp };
-      }
-      for (var b = 0; b < BANDS.length; b++) {
-        var key = BANDS[b].key;
-        if (manual[key] > bi.groups[key].length) {
-          return {
-            error: BANDS[b].label + 'は' + bi.groups[key].length + '個しかないので、'
-              + manual[key] + '個は選べません。',
-            bi: bi, comp: comp
-          };
+        error = '帯ごとの個数の合計を' + game.main + '個にしてください。';
+      } else {
+        for (var b = 0; b < BANDS.length; b++) {
+          var key = BANDS[b].key;
+          if (manual[key] > bi.groups[key].length) {
+            error = BANDS[b].label + 'は' + bi.groups[key].length + '個しかないので、'
+              + manual[key] + '個は選べません。';
+            break;
+          }
         }
       }
     }
 
-    var pConsec = rate(c.consecAny, c.n) / 100;
-    var pTail = rate(c.tailAny, c.n) / 100;
-    var sumLo = Math.floor(c.sumMin - (c.sumMax - c.sumMin) * 0.08);
-    var sumHi = Math.ceil(c.sumMax + (c.sumMax - c.sumMin) * 0.08);
+    return {
+      game: game,
+      cond: c,
+      bi: bi,
+      comp: comp,
+      prev: prev,
+      prevSet: prevSet,
+      manual: manual,
+      error: error,
+      pConsec: rate(c.consecAny, c.n) / 100,
+      pTail: rate(c.tailAny, c.n) / 100,
+      sumLo: Math.floor(c.sumMin - (c.sumMax - c.sumMin) * 0.08),
+      sumHi: Math.ceil(c.sumMax + (c.sumMax - c.sumMin) * 0.08)
+    };
+  }
 
-    var results = [];
-    var seen = {};
-    var relaxedAny = false;
-    var guardAll = 0;
-    while (results.length < state.predictCount && guardAll < 40) {
-      guardAll += 1;
-      var target = manual || sampleComposition(comp);
-      if (!target) { break; }
+  /* 1口ぶんを作ります。seen に入っている組み合わせは避けます */
+  function generateOne(ctx, seen) {
+    var c = ctx.cond;
+    var guard = 0;
+    while (guard < 40) {
+      guard += 1;
+      var target = ctx.manual || sampleComposition(ctx.comp);
+      if (!target) { return null; }
       var targetCarry = state.useCarry ? sampleDist(c.carryDist, 1) : null;
-      var needConsec = state.useConsec ? (Math.random() < pConsec) : null;
-      var needTail = state.useTail ? (Math.random() < pTail) : null;
+      var needConsec = state.useConsec ? (Math.random() < ctx.pConsec) : null;
+      var needTail = state.useTail ? (Math.random() < ctx.pTail) : null;
       var relax = 0;
-      var found = null;
-      while (relax <= 5 && !found) {
+      while (relax <= 5) {
         for (var t = 0; t < 2500; t++) {
-          var s = pickByBands(bi, target);
+          var s = pickByBands(ctx.bi, target);
           if (!s) { break; }
-          var ev = evalSet(s, prevSet, bi);
-          if (relax < 5 && state.useSum && (ev.sum < sumLo || ev.sum > sumHi)) { continue; }
+          var ev = evalSet(s, ctx.prevSet, ctx.bi);
+          if (relax < 5 && state.useSum && (ev.sum < ctx.sumLo || ev.sum > ctx.sumHi)) { continue; }
           if (relax < 4 && state.useOdd && (ev.odd < c.oddMin || ev.odd > c.oddMax)) { continue; }
           if (relax < 3 && needTail !== null && (ev.tails.length > 0) !== needTail) { continue; }
           if (relax < 2 && needConsec !== null && (ev.maxRun >= 2) !== needConsec) { continue; }
           if (relax < 1 && targetCarry !== null && ev.carry !== targetCarry) { continue; }
-          var key2 = s.join('-');
-          if (seen[key2]) { continue; }
-          found = { nums: s, ev: ev, relax: relax, target: target };
-          break;
+          if (seen[s.join('-')]) { continue; }
+          return { nums: s, ev: ev, relax: relax, target: target };
         }
-        if (!found) { relax += 1; }
+        relax += 1;
       }
-      if (!found) { continue; }
-      if (found.relax > 0) { relaxedAny = true; }
-      seen[found.nums.join('-')] = 1;
-      results.push(found);
+    }
+    return null;
+  }
+
+  function packResult(ctx, picks) {
+    var relaxed = false;
+    for (var i = 0; i < picks.length; i++) {
+      if (picks[i].relax > 0) { relaxed = true; }
     }
     return {
-      picks: results, cond: c, prev: prev, relaxed: relaxedAny,
-      sumLo: sumLo, sumHi: sumHi, pConsec: pConsec, pTail: pTail,
-      bi: bi, comp: comp
+      picks: picks, cond: ctx.cond, prev: ctx.prev, relaxed: relaxed,
+      sumLo: ctx.sumLo, sumHi: ctx.sumHi, pConsec: ctx.pConsec, pTail: ctx.pTail,
+      bi: ctx.bi, comp: ctx.comp
     };
+  }
+
+  function generatePicks() {
+    var ctx = predictContext();
+    if (!ctx) { return null; }
+    if (ctx.error) { return { error: ctx.error, bi: ctx.bi, comp: ctx.comp }; }
+    var picks = [];
+    var seen = {};
+    while (picks.length < state.predictCount) {
+      var found = generateOne(ctx, seen);
+      if (!found) { break; }
+      seen[found.nums.join('-')] = 1;
+      picks.push(found);
+    }
+    return packResult(ctx, picks);
+  }
+
+  /* 表示中の予想のうち、指定した1口だけを作り直します */
+  function regenOne(index) {
+    if (!lastPicks || lastPicks.game !== state.game) { return false; }
+    var picks = lastPicks.result.picks;
+    if (!picks || index < 0 || index >= picks.length) { return false; }
+    var ctx = predictContext();
+    if (!ctx || ctx.error) { return false; }
+    var seen = {};
+    var i;
+    for (i = 0; i < picks.length; i++) { seen[picks[i].nums.join('-')] = 1; }
+    /* 作り直したのに同じ組み合わせ、では分かりにくいので、いまの口も避けます */
+    var found = generateOne(ctx, seen);
+    if (!found) {
+      /* 選べる組み合わせが少なく避けきれない場合だけ、いまの口を許します */
+      seen = {};
+      for (i = 0; i < picks.length; i++) {
+        if (i !== index) { seen[picks[i].nums.join('-')] = 1; }
+      }
+      found = generateOne(ctx, seen);
+    }
+    if (!found) { return false; }
+    var next = picks.slice();
+    next[index] = found;
+    lastPicks = { game: state.game, result: packResult(ctx, next) };
+    return true;
   }
 
   function compTable(comp) {
@@ -1376,6 +1431,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
           h += '<div class="meta">引っ張り ' + pick.ev.carry + '個 ／ 連続 ' + runTxt + ' ／ 末尾一致 ' + tailTxt
             + ' ／ 合計 ' + pick.ev.sum + ' ／ 奇数 ' + pick.ev.odd + '個'
             + (pick.relax > 0 ? ' ／ <span style="color:#b45309">条件を一部緩和</span>' : '') + '</div>';
+          h += '<div style="margin-top:6px"><button class="mini" data-act="regen" data-i="' + p + '">この口だけ作り直す</button></div>';
           h += '</div>';
         }
         h += '<div><button class="btn sub" data-act="copy">結果をコピー</button><button class="btn gray" data-act="gen">もう一度生成</button></div>';
@@ -1446,6 +1502,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + 'どの組み合わせも当せん確率は同じです。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.50</td><td class="l">生成した予想を1口ずつ作り直せるようにしました。他の口はそのまま残ります。</td></tr>';
     h += '<tr><td class="l">v1.41</td><td class="l">頻度帯の組み合わせを数えるとき、その回自身を含めていたのを修正しました。当せん番号は自分で出現回数を1増やすため、加熱帯がちょうど1個ぶん水増しされていました。各回の帯は、その回より前のデータだけで決めます。</td></tr>';
     h += '<tr><td class="l">v1.40</td><td class="l">予想を頻度帯（加熱帯・標準帯・低頻度帯）による方式に作り替えました。過去の当せん番号が各帯から何個ずつ出ていたかを数え、その構成に合わせて選びます。個数を自分で決めることもできます。ダミーデータ生成と、誤解を招く説明文を削除しました。</td></tr>';
     h += '<tr><td class="l">v1.30</td><td class="l">回ごとに1行の一覧表（第2139回 2026/9/21 03 06 … の形）も貼り付けられるようにしました。スラッシュ区切りの日付を当せん番号として読み違える不具合を修正。取り込みは常に追加のみにし、保存済みJSONの読み込みと手入力を廃止。予想タブに計算方法の説明を追加しました。</td></tr>';
@@ -1575,6 +1632,11 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       }
       lastPicks = { game: state.game, result: res };
       render();
+    }
+    else if (act === 'regen') {
+      var ri = parseInt(t.getAttribute('data-i'), 10);
+      if (regenOne(ri)) { render(); }
+      else { alert('条件に合う組み合わせを作れませんでした。条件を減らしてください。'); }
     }
     else if (act === 'copy') { copyPicks(); }
   });

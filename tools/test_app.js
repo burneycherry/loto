@@ -403,6 +403,61 @@ for (var a2 = 0; a2 < autoBands.length; a2++) {
 }
 check('自動のときは過去に実際にあった構成だけを使う', inPast, true);
 
+console.log('1口だけの作り直し');
+function setsOf(view) {
+  var chipsAll = view.html().match(/<span class="chip pick">(\d+)<\/span>/g) || [];
+  var out = [];
+  for (var i = 0; i < chipsAll.length; i += 6) {
+    out.push(chipsAll.slice(i, i + 6).map(function (x) { return x.replace(/\D/g, ''); }).join(' '));
+  }
+  return out;
+}
+var rg = boot({ saved: { game: 'loto6', windowSize: 24, predictCount: 5,
+  useCarry: false, useConsec: false, useTail: false, useSum: false, useOdd: false,
+  data: { loto6: REAL8, loto7: [] } } });
+rg.click({ 'data-act': 'tab', 'data-t': 'pred' });
+rg.click({ 'data-act': 'gen' });
+var before = setsOf(rg);
+check('5口できている', before.length, 5);
+check('作り直しボタンが口ごとにある',
+  (rg.html().match(/data-act="regen"/g) || []).length, 5);
+
+rg.click({ 'data-act': 'regen', 'data-i': '2' });
+var after = setsOf(rg);
+check('口数は変わらない', after.length, 5);
+check('1口目はそのまま', after[0], before[0]);
+check('2口目はそのまま', after[1], before[1]);
+check('4口目はそのまま', after[3], before[3]);
+check('5口目はそのまま', after[4], before[4]);
+check('指定した3口目だけが入れ替わる', after[2] !== before[2], true);
+check('作り直すと必ず別の組み合わせになる', after.indexOf(before[2]), -1);
+var dup = false;
+for (var d1 = 0; d1 < after.length; d1++) {
+  for (var d2 = d1 + 1; d2 < after.length; d2++) { if (after[d1] === after[d2]) { dup = true; } }
+}
+check('他の口と重複しない', dup, false);
+var nums3 = after[2].split(' ').map(Number);
+var uniq3 = {};
+var ok3 = nums3.length === 6;
+for (var u = 0; u < nums3.length; u++) {
+  if (nums3[u] < 1 || nums3[u] > 43 || uniq3[nums3[u]]) { ok3 = false; }
+  uniq3[nums3[u]] = 1;
+}
+check('作り直した口も1〜43の重複なし6個', ok3, true);
+
+var rgm = boot({ saved: { game: 'loto6', windowSize: 24, predictCount: 3, bandMode: 'manual',
+  bandHot: 2, bandMid: 3, bandCold: 1, useCarry: false, useConsec: false,
+  useTail: false, useSum: false, useOdd: false, data: { loto6: REAL8, loto7: [] } } });
+rgm.click({ 'data-act': 'tab', 'data-t': 'pred' });
+rgm.click({ 'data-act': 'gen' });
+rgm.click({ 'data-act': 'regen', 'data-i': '0' });
+var mb = rgm.html().match(/加熱 (\d+)個 ／ 標準 (\d+)個 ／ 低頻度 (\d+)個/g) || [];
+var keepManual = true;
+for (var k3 = 0; k3 < mb.length; k3++) {
+  if (mb[k3] !== '加熱 2個 ／ 標準 3個 ／ 低頻度 1個') { keepManual = false; }
+}
+check('手動指定は作り直しても守られる', keepManual && mb.length === 3, true);
+
 console.log('帯の集計に自分自身を含めないこと');
 /*
  * 解析の動作を確かめるための作り物の並びで、当せん番号ではない。
