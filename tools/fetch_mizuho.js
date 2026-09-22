@@ -154,9 +154,9 @@ function parseBlock(block, spec) {
     if (cut > 0) { tail = tail.slice(0, cut); }
     bonusNums = numbersIn(tail, spec, spec.bonus);
   } else {
-    var body = block;
-    var dm = body.match(/\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日/);
-    if (dm) { body = body.slice(body.indexOf(dm[0]) + dm[0].length); }
+    var dm = block.slice(0, 200).match(/\d{4}\s*[年\/\.\-]\s*\d{1,2}\s*[月\/\.\-]\s*\d{1,2}\s*日?/);
+    if (!dm) { return null; }
+    var body = block.slice(block.indexOf(dm[0]) + dm[0].length);
     var cut2 = body.search(/[等円]/);
     if (cut2 > 0) { body = body.slice(0, cut2); }
     var all = numbersIn(body, spec, spec.main + spec.bonus);
@@ -195,7 +195,7 @@ function extractDraws(html, spec) {
     if (!(no >= 1 && no <= 9999)) { continue; }
     var stop = i + 1 < marks.length ? marks[i + 1].at : text.length;
     var block = text.slice(marks[i].end, Math.min(stop, marks[i].end + 1200));
-    var dm = block.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+    var dm = block.slice(0, 200).match(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*日?/);
     var nums = parseBlock(block, spec);
     if (!nums) { dbg('第' + no + '回: 数字を読めずスキップ'); continue; }
     out.push({

@@ -202,7 +202,7 @@ d.setPaste([
   'ここは数字のない行',
   '第1897回 2026年4月22日 03 11 19 24 35 99 (07)'
 ].join('\n'));
-d.click({ 'data-act': 'import-replace' });
+d.click({ 'data-act': 'import' });
 var dataText = d.text();
 has('4件取り込み', dataText, '保有データ（4件）');
 has('回号と日付を読む', dataText, '2026-05-02');
@@ -235,7 +235,7 @@ var pageCopy = [
 ].join('\n');
 var pc = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
 pc.setPaste(pageCopy);
-pc.click({ 'data-act': 'import-replace' });
+pc.click({ 'data-act': 'import' });
 var pcText = pc.text();
 has('ページのコピーから2件読む', pcText, '保有データ（2件）');
 has('第2139回の本数字', pcText, '03 06 23 34 36 43');
@@ -260,61 +260,89 @@ pc7.setPaste([
   'ボーナス数字\t(23)\t(34)',
   '1等\t1口\t1,200,000,000円'
 ].join('\n'));
-pc7.click({ 'data-act': 'import-replace' });
+pc7.click({ 'data-act': 'import' });
 var pc7Text = pc7.text();
 has('ロト7もページのコピーから読む', pc7Text, '保有データ（2件）');
 has('ロト7の本数字', pc7Text, '05 06 11 16 22 24 34');
 has('ロト7のボーナス2個', pc7Text, '(15 18)');
 
-console.log('保存済みデータの自動取得');
-var json6 = JSON.stringify([
-  { no: 2139, date: '2026-09-21', main: [3, 6, 23, 34, 36, 43], bonus: [29] },
-  { no: 2138, date: '2026-09-17', main: [9, 16, 21, 26, 38, 40], bonus: [12] }
-]);
-var e = boot({
-  saved: {
-    game: 'loto6',
-    remoteBase: 'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto6/index.html',
-    data: { loto6: [], loto7: [] }
-  },
-  served: { './data/loto6.json': json6 }
-});
-e.click({ 'data-act': 'fetch-remote' });
+console.log('回ごとに1行の一覧表を貼り付け');
+var listRows6 = [
+  '回別\t抽選日\t本数字\tボーナス数字\t1等\t口数\t当せん金\tキャリーオーバー',
+  '第2139回\t2026/9/21\t03\t06\t23\t34\t36\t43\t29\t1\t4億5,134万円\t0円',
+  '第2138回\t2026/9/17\t09\t16\t21\t26\t38\t40\t12\t0\t該当なし\t2億円',
+  '第2135回\t2026/9/7\t07\t13\t32\t34\t37\t39\t41\t0\t該当なし\t2億円',
+  '第2133回\t2026/8/31\t01\t11\t14\t20\t29\t38\t27\t1\t2億円\t3千万円',
+  '第2130回\t2026/8/20\t12\t18\t35\t40\t41\t43\t03\t1\t5億1,009万円\t0円'
+].join('\n');
+var lr = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+lr.setPaste(listRows6);
+lr.click({ 'data-act': 'import' });
+var lrText = lr.text();
+has('5件読む', lrText, '保有データ（5件）');
+has('スラッシュ区切りの日付を読む', lrText, '2026-09-21');
+has('日付の数字を当せん番号にしない', lrText, '03 06 23 34 36 43');
+check('日付の 9 と 21 が混ざらない', lrText.indexOf('03 06 09 21 23 34') < 0, true);
+has('1桁の月日も読む', lrText, '2026-09-07');
+has('当せん金の数字を拾わない', lrText, '12 18 35 40 41 43');
+has('該当なしの回も読む', lrText, '09 16 21 26 38 40');
 
-setTimeout(function () {
-  check('保存されていたみずほURLは無視して同じ場所を見る', e.calls, ['./data/loto6.json']);
-  has('取得できた', e.text(), 'ロト6 を取得しました（読込 2件 / 新規 2件 / 保有 2件）');
+var listRows7 = [
+  '回別\t抽選日\t本数字\tbonus数字\t1等\t口数\t当せん金\tキャリーオーバー',
+  '第695回\t2026/9/18\t05\t06\t11\t16\t22\t24\t34\t15\t18\t1\t12億円\t8億円',
+  '第692回\t2026/8/28\t07\t09\t15\t18\t20\t28\t31\t21\t34\t0\t該当なし\t25億円'
+].join('\n');
+var lr7 = boot({ saved: { game: 'loto7', data: { loto6: [], loto7: [] } } });
+lr7.setPaste(listRows7);
+lr7.click({ 'data-act': 'import' });
+var lr7Text = lr7.text();
+has('ロト7も2件読む', lr7Text, '保有データ（2件）');
+has('ロト7の本数字7個', lr7Text, '05 06 11 16 22 24 34');
+has('ロト7のボーナス2個', lr7Text, '(15 18)');
+has('ロト7の該当なしの回', lr7Text, '07 09 15 18 20 28 31');
 
-  var f = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } }, served: {} });
-  f.set('remoteBase', 'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto6/index.html');
-  f.click({ 'data-act': 'fetch-remote' });
-  check('みずほURLを入れたら通信せずに止める', f.calls.length, 0);
-  has('理由を伝える', f.status(), 'ここはみずほではなく');
-  f.click({ 'data-act': 'reset-remote' });
-  has('既定に戻せる', f.text(), '取得元を既定');
+console.log('取り込みは常に追加になる');
+var addOnly = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+addOnly.setPaste('第2139回 2026/9/21 03 06 23 34 36 43 29 1 4億5,134万円 0円');
+addOnly.click({ 'data-act': 'import' });
+addOnly.setPaste('第2138回 2026/9/17 09 16 21 26 38 40 12 0 該当なし 2億円');
+addOnly.click({ 'data-act': 'import' });
+has('前に入れた回が消えない', addOnly.text(), '保有データ（2件）');
+addOnly.setPaste('第2139回 2026/9/21 03 06 23 34 36 43 29 1 4億5,134万円 0円');
+addOnly.click({ 'data-act': 'import' });
+has('同じ回は重複しない', addOnly.text(), '保有データ（2件）');
 
-  var h = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } }, served: {} });
-  h.click({ 'data-act': 'fetch-remote' });
-  setTimeout(function () {
-    has('データ未作成時に試したURLを示す', h.status(), './data/loto6.json');
-    has('原因の見当を示す', h.status(), 'まだ作られていない');
+console.log('予想の作り方の説明');
+var ex = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: SAMPLE, loto7: [] } } });
+ex.click({ 'data-act': 'tab', 'data-t': 'pred' });
+var exText = ex.text();
+has('重みの式を示す', exText, 'c ＋ 0.9');
+has('バランスの誤解を解く', exText, 'ホットとコールドを混ぜる、という意味の「バランス」ではありません');
+has('確率は上がらないと明記', exText, 'この操作で当せん確率は上がりません');
 
-    console.log('バージョン表示');
-    var v = fs.readFileSync(path.join(__dirname, '..', 'VERSION'), 'utf8').trim();
-    var sw = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
-    var appVer = source.match(/APP_VERSION = '([\d.]+)'/);
-    check('index.html のバージョンが VERSION と一致', appVer ? appVer[1] : null, v);
-    check('sw.js のバージョンが VERSION と一致',
-      (sw.match(/APP_VERSION = '([\d.]+)'/) || [])[1], v);
-    has('画面にバージョンを表示', h.text(), 'v' + v);
+console.log('廃止した機能が残っていないこと');
+var gone = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+var goneHtml = gone.html();
+check('保存済みJSONの読み込み欄が無い', goneHtml.indexOf('remoteBase') < 0, true);
+check('手入力の欄が無い', goneHtml.indexOf('manual-add') < 0, true);
+check('置き換えボタンが無い', goneHtml.indexOf('import-replace') < 0, true);
+check('取り込みボタンはある', goneHtml.indexOf('data-act="import"') >= 0, true);
+check('通信しない', gone.calls.length, 0);
 
-    console.log('CSSの決まりごと');
-    var htmlAll = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-    check('CSSカスタムプロパティを使っていない', /var\(\s*-/.test(htmlAll), false);
-    check('ハイフン2つの並びが無い', htmlAll.indexOf('-' + '-') >= 0, false);
+console.log('バージョン表示');
+var v = fs.readFileSync(path.join(__dirname, '..', 'VERSION'), 'utf8').trim();
+var sw = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
+var appVer = source.match(/APP_VERSION = '([\d.]+)'/);
+check('index.html のバージョンが VERSION と一致', appVer ? appVer[1] : null, v);
+check('sw.js のバージョンが VERSION と一致',
+  (sw.match(/APP_VERSION = '([\d.]+)'/) || [])[1], v);
+has('画面にバージョンを表示', gone.text(), 'v' + v);
 
-    console.log('');
-    console.log('結果: ' + pass + '件成功 / ' + fail + '件失敗');
-    process.exit(fail === 0 ? 0 : 1);
-  }, 30);
-}, 30);
+console.log('CSSの決まりごと');
+var htmlAll = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+check('CSSカスタムプロパティを使っていない', /var\(\s*-/.test(htmlAll), false);
+check('ハイフン2つの並びが無い', htmlAll.indexOf('-' + '-') >= 0, false);
+
+console.log('');
+console.log('結果: ' + pass + '件成功 / ' + fail + '件失敗');
+process.exit(fail === 0 ? 0 : 1);

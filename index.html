@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.20';
+  var APP_VERSION = '1.30';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -332,15 +332,11 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     useSum: true,
     useOdd: true,
     pasteOrder: 'auto',
-    remoteBase: '',
-    autoFetch: false,
     data: { loto6: [], loto7: [] }
   };
 
   var pasteText = '';
   var lastPicks = null;
-  var fetchMsg = '';
-  var fetchErr = false;
 
   function $(id) { return document.getElementById(id); }
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -381,8 +377,6 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
         useSum: state.useSum,
         useOdd: state.useOdd,
         pasteOrder: state.pasteOrder,
-        remoteBase: state.remoteBase,
-        autoFetch: state.autoFetch,
         data: state.data
       }));
     } catch (e) { /* 保存できない環境では無視 */ }
@@ -396,12 +390,9 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       if (!o || typeof o !== 'object') { return; }
       var keys = ['game', 'windowSize', 'carryWithBonus', 'freqTarget', 'freqSort',
         'predictMode', 'predictCount', 'useCarry', 'useConsec', 'useTail',
-        'useSum', 'useOdd', 'pasteOrder', 'remoteBase', 'autoFetch'];
+        'useSum', 'useOdd', 'pasteOrder'];
       for (var i = 0; i < keys.length; i++) {
         if (typeof o[keys[i]] !== 'undefined') { state[keys[i]] = o[keys[i]]; }
-      }
-      if (/mizuhobank\.co\.jp/i.test(String(state.remoteBase || ''))) {
-        state.remoteBase = '';
       }
       if (o.data) {
         if (Array.isArray(o.data.loto6)) { state.data.loto6 = o.data.loto6; }
@@ -477,7 +468,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       if (!(no >= 1 && no <= 9999)) { continue; }
       var stop = i + 1 < marks.length ? marks[i + 1].at : t.length;
       var block = t.slice(marks[i].end, Math.min(stop, marks[i].end + 1200));
-      var dm = block.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+      var dm = block.slice(0, 200).match(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*日?/);
       var main = null;
       var bonus = null;
       var iMain = block.search(/本数字/);
@@ -488,9 +479,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
         var cut = tail.search(/[等円口]/);
         if (cut > 0) { tail = tail.slice(0, cut); }
         bonus = numbersIn(tail, game, game.bonus);
-      } else {
-        var body = block;
-        if (dm) { body = body.slice(body.indexOf(dm[0]) + dm[0].length); }
+      } else if (dm) {
+        var body = block.slice(block.indexOf(dm[0]) + dm[0].length);
         var cut2 = body.search(/[等円]/);
         if (cut2 > 0) { body = body.slice(0, cut2); }
         var all = numbersIn(body, game, game.main + game.bonus);
@@ -571,7 +561,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     return { draws: out, errors: errs };
   }
 
-  function importText(mode) {
+  function importText() {
     var game = g();
     var r = parseDraws(pasteText, game);
     var blocks = parseBlocks(pasteText, game);
@@ -594,26 +584,12 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     } else {
       list.sort(function (a, b) { return b.no - a.no; });
     }
-    var merged;
-    if (mode === 'replace') {
-      merged = list;
-    } else {
-      merged = list.concat(state.data[game.key]);
-      var seen = {};
-      var uniq = [];
-      for (var k = 0; k < merged.length; k++) {
-        var key = drawKey(merged[k]);
-        if (seen[key]) { continue; }
-        seen[key] = 1;
-        uniq.push(merged[k]);
-      }
-      merged = sortDraws(uniq);
-    }
-    state.data[game.key] = merged;
+    var added = mergeInto(game.key, list);
+    var merged = state.data[game.key];
     pasteText = '';
     save();
     render();
-    var msg = r.draws.length + '件を取り込みました（保有 ' + merged.length + '件）。';
+    var msg = r.draws.length + '件を読み取り、' + added + '件を追加しました（保有 ' + merged.length + '件）。';
     if (usedBlocks) { msg = 'ページをコピーした形式として読み取りました。\n' + msg; }
     if (r.errors.length) { msg += '\n読み飛ばし ' + r.errors.length + '行:\n' + r.errors.slice(0, 5).join('\n'); }
     alert(msg);
@@ -632,103 +608,6 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var before = state.data[gameKey].length;
     state.data[gameKey] = sortDraws(uniq);
     return state.data[gameKey].length - before;
-  }
-
-  function normalizeRemote(list, game) {
-    var out = [];
-    for (var i = 0; i < list.length; i++) {
-      var d = list[i];
-      if (!d || !Array.isArray(d.main) || !Array.isArray(d.bonus)) { continue; }
-      if (d.main.length !== game.main || d.bonus.length !== game.bonus) { continue; }
-      var all = d.main.concat(d.bonus);
-      var seen = {};
-      var ok = true;
-      for (var j = 0; j < all.length; j++) {
-        var v = all[j];
-        if (typeof v !== 'number' || !(v >= 1 && v <= game.max) || seen[v]) { ok = false; break; }
-        seen[v] = 1;
-      }
-      if (!ok) { continue; }
-      out.push({
-        no: typeof d.no === 'number' ? d.no : null,
-        date: typeof d.date === 'string' ? d.date : null,
-        main: d.main.slice().sort(asc),
-        bonus: d.bonus.slice().sort(asc)
-      });
-    }
-    return out;
-  }
-
-  function setFetchMsg(msg, isErr) {
-    fetchMsg = msg;
-    fetchErr = !!isErr;
-    var el = $('fetchStatus');
-    if (el) {
-      el.innerHTML = msg ? '<p class="note"' + (isErr ? ' style="color:#b91c1c"' : '') + '>' + esc(msg) + '</p>' : '';
-    }
-  }
-
-  function remoteUrls(game) {
-    var urls = [];
-    if (String(location.protocol).indexOf('http') === 0) {
-      urls.push('./data/' + game.key + '.json');
-    }
-    var base = String(state.remoteBase || '').trim().replace(/\/+$/, '');
-    if (base) {
-      var u = base + '/' + game.key + '.json';
-      if (urls.indexOf(u) < 0) { urls.push(u); }
-    }
-    if (urls.length === 0) { urls.push('./data/' + game.key + '.json'); }
-    return urls;
-  }
-
-  function fetchRemote(silent) {
-    var game = g();
-    if (typeof fetch !== 'function') {
-      setFetchMsg('このブラウザは自動取得に対応していません。貼り付けで取り込んでください。', true);
-      return;
-    }
-    if (/mizuhobank\.co\.jp/i.test(String(state.remoteBase || ''))) {
-      setFetchMsg('取得元にみずほのURLが入っています。ここはみずほではなく、GitHub Actions が保存した '
-        + game.key + '.json の置き場所を指定する欄です。「既定に戻す」を押してください。', true);
-      return;
-    }
-    var urls = remoteUrls(game);
-    setFetchMsg('取得中…', false);
-    var i = 0;
-    function step() {
-      if (i >= urls.length) {
-        if (silent) { setFetchMsg('', false); return; }
-        setFetchMsg('取得できませんでした。試したURL: ' + urls.join(' / ')
-          + ' ／ data/' + game.key + '.json がまだ作られていない可能性があります。'
-          + 'GitHub の Actions で「みずほ当せん番号の取得」が成功しているか確認してください。', true);
-        return;
-      }
-      var url = urls[i];
-      i += 1;
-      fetch(url, { cache: 'no-store' }).then(function (res) {
-        if (!res.ok) { throw new Error('HTTP ' + res.status); }
-        return res.text();
-      }).then(function (txt) {
-        var incoming = null;
-        var parsed = null;
-        try { parsed = JSON.parse(txt); } catch (e) { parsed = null; }
-        if (parsed && Object.prototype.toString.call(parsed) === '[object Array]') {
-          incoming = normalizeRemote(parsed, game);
-        } else {
-          incoming = parseDraws(txt, game).draws;
-        }
-        if (!incoming || incoming.length === 0) { throw new Error('有効なデータがありません'); }
-        var added = mergeInto(game.key, incoming);
-        save();
-        setFetchMsg(game.label + ' を取得しました（読込 ' + incoming.length + '件 / 新規 ' + added
-          + '件 / 保有 ' + state.data[game.key].length + '件）。', false);
-        render();
-      }).catch(function () {
-        step();
-      });
-    }
-    step();
   }
 
   function calcFreq(win, game) {
@@ -913,9 +792,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     h += demoBanner();
     h += '<div class="card">';
     h += '<h2 class="sec">' + game.label + ' 抽せん結果の取り込み</h2>';
-    h += '<p class="note"><b>みずほの「' + game.label + '抽せん数字一覧表」をSafariで開き、ページ全体をコピーしてそのまま貼り付けられます。</b>その月の全回がまとめて入ります。月を変えて繰り返せば過去分も集まります。</p>';
-    h += '<p class="note">1行に1回ずつ書いた形式でも読み取れます。本数字' + game.main + '個＋ボーナス' + game.bonus + '個（数字は1〜' + game.max + '）。回号・日付は自動で判別します。</p>';
-    h += '<p class="note">例: <code class="sm">第1900回 2024年5月2日 03 11 19 24 35 41 (07)</code> / <code class="sm">1900,2024/05/02,3,11,19,24,35,41,7</code> / 数字だけの行も可</p>';
+    h += '<p class="note"><b>当せん番号の一覧ページをブラウザで開き、ページ全体をコピーしてそのまま貼り付けてください。</b>回号・抽せん日・本数字・ボーナス数字を自動で読み取ります。賞金額や口数は取り込みません。</p>';
+    h += '<p class="note">読み取れる形式の例<br>・みずほ銀行「' + game.label + '抽せん数字一覧表」（1か月分がまとめて入ります。月を変えて繰り返せば過去分も集まります）<br>・回ごとに1行の一覧表（第2139回 2026/9/21 03 06 23 … の形）<br>・<code class="sm">第1900回 2026年5月2日 03 11 19 24 35 41 (07)</code><br>・<code class="sm">1900,2026/05/02,3,11,19,24,35,41,7</code>';
     h += '<label class="fld">貼り付けエリア</label>';
     h += '<textarea id="paste" placeholder="ここに貼り付け">' + esc(pasteText) + '</textarea>';
     h += '<label class="fld">回号が無い場合の並び順</label>';
@@ -924,33 +802,9 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '<option value="old"' + (state.pasteOrder === 'old' ? ' selected' : '') + '>古い回が上</option>'
       + '</select>';
     h += '<div style="margin-top:10px">';
-    h += '<button class="btn" data-act="import-replace">解析して置き換え</button>';
-    h += '<button class="btn sub" data-act="import-merge">追加取り込み</button>';
+    h += '<button class="btn wide" data-act="import">取り込む</button>';
     h += '</div>';
-    h += '</div>';
-
-    h += '<div class="card">';
-    h += '<h2 class="sec">保存済みデータを読み込む</h2>';
-    h += '<p class="note">リポジトリに保存された data/' + game.key + '.json を読み込みます。1回押すだけで、最新回と過去分（最大120回）がまとめて入ります。</p>';
-    h += '<p class="note">⚠ みずほのページは GitHub Actions からは取得できません（みずほ側がアクセスを拒否するため）。このファイルは、通信できる手元の端末で <code class="sm">node tools/fetch_mizuho.js</code> を実行して push した場合に作られます。普段は上の貼り付けをお使いください。</p>';
-    h += '<label class="fld">保存済みJSONの置き場所（省略可）</label>';
-    h += '<input type="text" id="remoteBase" data-set="remoteBase" value="' + esc(state.remoteBase) + '" placeholder="空欄でOK（このページと同じ場所の data/ を見ます）">';
-    h += '<p class="note">空欄なら、このページと同じ場所の <code class="sm">data/' + game.key + '.json</code> を読みます（GitHub Pages で公開している場合はそのままでOK）。別の場所から読むときだけ <code class="sm">https://raw.githubusercontent.com/ユーザー名/loto/ブランチ名/data</code> のように指定します。<b>みずほのURLを入れる欄ではありません。</b></p>';
-    h += '<div class="checks" style="margin-top:8px"><label><input type="checkbox" data-set="autoFetch"' + (state.autoFetch ? ' checked' : '') + '>起動時に自動で取得する</label></div>';
-    h += '<div style="margin-top:10px"><button class="btn wide" data-act="fetch-remote">最新データを取得して追加</button></div>';
-    h += '<div style="margin-top:4px"><button class="btn gray" data-act="reset-remote">取得元を既定に戻す</button></div>';
-    h += '<div id="fetchStatus">' + (fetchMsg ? '<p class="note"' + (fetchErr ? ' style="color:#b91c1c"' : '') + '>' + esc(fetchMsg) + '</p>' : '') + '</div>';
-    h += '</div>';
-
-    h += '<div class="card">';
-    h += '<h2 class="sec">手入力で1回追加</h2>';
-    h += '<div class="row2">';
-    h += '<div><label class="fld">回号</label><input type="number" id="mNo" inputmode="numeric" placeholder="1900"></div>';
-    h += '<div><label class="fld">日付</label><input type="text" id="mDate" placeholder="2024/05/02"></div>';
-    h += '</div>';
-    h += '<label class="fld">本数字（' + game.main + '個・スペース区切り）</label><input type="text" id="mMain" inputmode="numeric" placeholder="3 11 19 24 35 41">';
-    h += '<label class="fld">ボーナス数字（' + game.bonus + '個）</label><input type="text" id="mBonus" inputmode="numeric" placeholder="' + (game.bonus === 1 ? '7' : '7 22') + '">';
-    h += '<div style="margin-top:10px"><button class="btn wide" data-act="manual-add">この回を追加</button></div>';
+    h += '<p class="note">回号ごとに当せん番号は決まっているので、取り込みは常に追加です。すでにある回は重複しません。入れ直したいときは下の「全消去」をしてから取り込んでください。</p>';
     h += '</div>';
 
     h += '<div class="card">';
@@ -1278,10 +1132,10 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     }
     h += '<div class="row2">';
     h += '<div><label class="fld">重み付けモード</label><select data-set="predictMode">'
-      + '<option value="balance"' + (state.predictMode === 'balance' ? ' selected' : '') + '>バランス（出現回数に比例）</option>'
-      + '<option value="hot"' + (state.predictMode === 'hot' ? ' selected' : '') + '>ホット重視（よく出る数字）</option>'
-      + '<option value="cold"' + (state.predictMode === 'cold' ? ' selected' : '') + '>コールド重視（穴狙い）</option>'
-      + '<option value="flat"' + (state.predictMode === 'flat' ? ' selected' : '') + '>均等（条件のみ適用）</option>'
+      + '<option value="balance"' + (state.predictMode === 'balance' ? ' selected' : '') + '>頻度どおり（出現回数に比例）</option>'
+      + '<option value="hot"' + (state.predictMode === 'hot' ? ' selected' : '') + '>よく出る数字を強く重視</option>'
+      + '<option value="cold"' + (state.predictMode === 'cold' ? ' selected' : '') + '>出ていない数字を重視</option>'
+      + '<option value="flat"' + (state.predictMode === 'flat' ? ' selected' : '') + '>重み付けなし（条件のみ）</option>'
       + '</select></div>';
     h += '<div><label class="fld">口数</label><select data-set="predictCount">';
     for (var i = 1; i <= 10; i++) {
@@ -1316,7 +1170,31 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       h += '<div><button class="btn sub" data-act="copy">結果をコピー</button><button class="btn gray" data-act="gen">もう一度生成</button></div>';
       h += '<p class="note">適用レンジ: 合計 ' + r.sumLo + '〜' + r.sumHi + ' ／ 連続あり確率 ' + fx(r.pConsec * 100, 1) + '% ／ 末尾一致あり確率 ' + fx(r.pTail * 100, 1) + '%</p>';
     }
-    h += '<p class="note">※ 宝くじの抽せんは毎回独立事象です。本アプリの統計・予想は過去傾向の可視化であり、当せんを保証するものではありません。購入は自己責任でお願いします。</p>';
+    h += '</div>';
+
+    h += '<div class="card">';
+    h += '<h2 class="sec">この予想の作り方</h2>';
+    h += '<h3 class="sub">1. 数字ごとの重みを決める</h3>';
+    h += '<p class="note">①の対象期間（' + win.length + '回分）の出現回数から、数字ごとの選ばれやすさを決めます。出現回数を c として、選んだモードで計算式が変わります。</p>';
+    h += '<table class="tb"><thead><tr><th class="l">モード</th><th class="l">重み</th><th class="l">性格</th></tr></thead><tbody>'
+      + '<tr><td class="l">頻度どおり</td><td class="l">c ＋ 0.9</td><td class="l">出現回数にほぼ比例。0回の数字も選ばれます</td></tr>'
+      + '<tr><td class="l">よく出る数字を強く重視</td><td class="l">(c ＋ 0.6) の2.2乗</td><td class="l">差を広げて多い数字に寄せます</td></tr>'
+      + '<tr><td class="l">出ていない数字を重視</td><td class="l">1 ÷ (c ＋ 0.7) の1.6乗</td><td class="l">出ていない数字ほど選ばれます</td></tr>'
+      + '<tr><td class="l">重み付けなし</td><td class="l">すべて 1</td><td class="l">回数を見ず、下の条件だけを使います</td></tr>'
+      + '</tbody></table>';
+    h += '<p class="note">この重みで、重複しないように' + game.main + '個を1つずつ抽せんします（重みが大きい数字ほど当たりやすいくじ引き）。ホットとコールドを混ぜる、という意味の「バランス」ではありません。</p>';
+    h += '<h3 class="sub">2. ②の傾向に合う形かどうかを見る</h3>';
+    h += '<p class="note">選んだ' + game.main + '個が、②で集計した傾向に合っているかを確認し、合わなければ作り直します（最大2500回）。確認するのは次の5つで、チェックを外した項目は見ません。</p>';
+    h += '<table class="tb"><thead><tr><th class="l">条件</th><th class="l">合わせ方</th></tr></thead><tbody>'
+      + '<tr><td class="l">引っ張りの個数</td><td class="l">②の個数分布から抽せんし、その個数ちょうどにします</td></tr>'
+      + '<tr><td class="l">連続数字</td><td class="l">②の「連続あり」の確率でくじを引き、その結果に合わせます</td></tr>'
+      + '<tr><td class="l">末尾同一</td><td class="l">②の「末尾一致あり」の確率でくじを引き、その結果に合わせます</td></tr>'
+      + '<tr><td class="l">合計値</td><td class="l">②の最小〜最大の範囲（前後8%の余裕つき）に収めます</td></tr>'
+      + '<tr><td class="l">奇数の個数</td><td class="l">②の最小〜最大の範囲に収めます</td></tr>'
+      + '</tbody></table>';
+    h += '<p class="note">見つからないときは、引っ張り → 連続 → 末尾 → 奇数 → 合計 の順に条件を外して探します。外したときは「条件を一部緩和」と表示します。</p>';
+    h += '<h3 class="sub">3. 正直なところ</h3>';
+    h += '<p class="note">やっているのは「過去の当せん番号と似た<b>形</b>の組み合わせを作る」ことだけです。抽せんは毎回独立した事象なので、<b>この操作で当せん確率は上がりません</b>（どの組み合わせも確率は同じです）。買い方の手がかりとしてお使いください。購入は自己責任でお願いします。</p>';
     h += '</div>';
     return h;
   }
@@ -1328,7 +1206,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '<div><b>' + state.data.loto6.length + '件</b><span>ロト6 保有データ</span></div>'
       + '<div><b>' + state.data.loto7.length + '件</b><span>ロト7 保有データ</span></div></div>';
     h += '<h3 class="sub">使い方</h3>';
-    h += '<p class="note">1. 「データ」タブで、みずほの「抽せん数字一覧表」をコピーして貼り付け、「解析して置き換え」または「追加取り込み」（最新回から24回分以上あると分析が安定します）。月を切り替えて繰り返すと過去分が集まります。<br>'
+    h += '<p class="note">1. 「データ」タブで、当せん番号の一覧ページをコピーして貼り付け、「取り込む」（最新回から24回分以上あると分析が安定します）。月を切り替えて繰り返すと過去分が集まります。<br>'
       + '2. 「出現率」タブで ① 各数字の出現回数と出現回数別のまとめを確認。<br>'
       + '3. 「条件確率」タブで ② 引っ張り・連続・末尾同一などの出現確率を確認。<br>'
       + '4. 「予想」タブで②の分布に沿った候補を生成。</p>';
@@ -1340,6 +1218,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '・データはこの端末のブラウザ内（localStorage）にのみ保存されます。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.30</td><td class="l">回ごとに1行の一覧表（第2139回 2026/9/21 03 06 … の形）も貼り付けられるようにしました。スラッシュ区切りの日付を当せん番号として読み違える不具合を修正。取り込みは常に追加のみにし、保存済みJSONの読み込みと手入力を廃止。予想タブに計算方法の説明を追加しました。</td></tr>';
     h += '<tr><td class="l">v1.20</td><td class="l">みずほの「抽せん数字一覧表」をブラウザでコピーして、そのまま貼り付けられるようにしました。1か月分がまとめて入ります。GitHub Actions からの自動取得はみずほ側に拒否されるため、通常はこちらを使います。</td></tr>';
     h += '<tr><td class="l">v1.14</td><td class="l">みずほへの接続が拒否された（403）ため、一般的なブラウザと同じ要求ヘッダで取得するように変更。</td></tr>';
     h += '<tr><td class="l">v1.13</td><td class="l">取得元の指定を分かりやすく変更。既定で同じ場所の data/ を読むようにし、みずほのURLが入っていた場合は警告して戻せるようにしました。ワークフローは push でも動くようにし、ブランチのままでも取得できます。</td></tr>';
@@ -1378,49 +1257,6 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     if (pt) {
       pt.addEventListener('input', function () { pasteText = pt.value; });
     }
-  }
-
-  function parseNumList(str, max) {
-    var m = String(str).replace(/[０-９]/g, function (c) {
-      return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
-    }).match(/\d+/g);
-    if (!m) { return []; }
-    return m.map(Number).filter(function (v) { return v >= 1 && v <= max; });
-  }
-
-  function manualAdd() {
-    var game = g();
-    var main = parseNumList($('mMain').value, game.max);
-    var bonus = parseNumList($('mBonus').value, game.max);
-    if (main.length !== game.main || bonus.length !== game.bonus) {
-      alert('本数字' + game.main + '個、ボーナス' + game.bonus + '個を1〜' + game.max + 'で入力してください。');
-      return;
-    }
-    var seen = {};
-    var comb = main.concat(bonus);
-    for (var i = 0; i < comb.length; i++) {
-      if (seen[comb[i]]) { alert('数字が重複しています。'); return; }
-      seen[comb[i]] = 1;
-    }
-    var noRaw = $('mNo').value;
-    var d = {
-      no: noRaw === '' ? null : parseInt(noRaw, 10),
-      date: $('mDate').value || null,
-      main: main.sort(asc),
-      bonus: bonus.sort(asc)
-    };
-    var list = [d].concat(state.data[game.key]);
-    var seen2 = {};
-    var uniq = [];
-    for (var k = 0; k < list.length; k++) {
-      var key = drawKey(list[k]);
-      if (seen2[key]) { continue; }
-      seen2[key] = 1;
-      uniq.push(list[k]);
-    }
-    state.data[game.key] = sortDraws(uniq);
-    save();
-    render();
   }
 
   function download(name, text, type) {
@@ -1505,16 +1341,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var act = t.getAttribute('data-act');
     if (act === 'tab') { state.tab = t.getAttribute('data-t'); save(); render(); }
     else if (act === 'game') { state.game = t.getAttribute('data-g'); lastPicks = null; save(); render(); }
-    else if (act === 'import-replace') { importText('replace'); }
-    else if (act === 'import-merge') { importText('merge'); }
-    else if (act === 'manual-add') { manualAdd(); }
-    else if (act === 'fetch-remote') { fetchRemote(false); }
-    else if (act === 'reset-remote') {
-      state.remoteBase = '';
-      setFetchMsg('取得元を既定（このページと同じ場所の data/）に戻しました。', false);
-      save();
-      render();
-    }
+    else if (act === 'import') { importText(); }
     else if (act === 'del-row') {
       var i = parseInt(t.getAttribute('data-i'), 10);
       state.data[state.game].splice(i, 1);
@@ -1555,10 +1382,6 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 
   load();
   render();
-
-  if (state.autoFetch && navigator.onLine !== false) {
-    fetchRemote(true);
-  }
 
   if ('serviceWorker' in navigator && String(location.protocol).indexOf('http') === 0) {
     window.addEventListener('load', function () {
