@@ -372,12 +372,67 @@ for (var z = 0; z < bands.length; z++) {
   if (bands[z] !== '加熱 2個 ／ 標準 3個 ／ 低頻度 1個') { allMatch = false; }
 }
 check('指定した 加熱2・標準3・低頻度1 のとおりに選ばれる', allMatch, true);
+has('v1.53以前の保存（幅なし）をそのまま読める', bp.html(), 'data-set="bandHotMin"');
 
 var bad = boot({ saved: { game: 'loto6', windowSize: 24, bandMode: 'manual',
-  bandHot: 6, bandMid: 6, bandCold: 6, data: { loto6: REAL8, loto7: [] } } });
+  bandHotMin: 6, bandHotMax: 6, bandMidMin: 6, bandMidMax: 6, bandColdMin: 6, bandColdMax: 6,
+  data: { loto6: REAL8, loto7: [] } } });
 bad.click({ 'data-act': 'tab', 'data-t': 'pred' });
 bad.click({ 'data-act': 'gen' });
-has('合計が合わないときは理由を出す', bad.text(), '合計を6個にしてください');
+has('合計が合わないときは理由を出す', bad.text(), '合計が6個になる組み合わせがありません');
+
+var rev = boot({ saved: { game: 'loto6', windowSize: 24, bandMode: 'manual',
+  bandHotMin: 4, bandHotMax: 2, data: { loto6: REAL8, loto7: [] } } });
+rev.click({ 'data-act': 'tab', 'data-t': 'pred' });
+has('下限が上限を超えたら理由を出す', rev.text(), '加熱帯は下限（4個）が上限（2個）を超えています');
+
+console.log('帯ごとの個数に幅を持たせること');
+var rng = boot({ saved: { game: 'loto6', windowSize: 24, predictCount: 20, bandMode: 'manual',
+  bandHotMin: 2, bandHotMax: 3, bandMidMin: 2, bandMidMax: 3, bandColdMin: 1, bandColdMax: 1,
+  useCarry: false, useConsec: false, useTail: false, useSum: false, useOdd: false,
+  data: { loto6: REAL8, loto7: [] } } });
+rng.click({ 'data-act': 'tab', 'data-t': 'pred' });
+var rngText = rng.text();
+has('上限と下限の両方を選べる', rng.html(), 'data-set="bandHotMax"');
+has('組み合わせの数を伝える', rngText, '合計6個になる組み合わせ2通りから');
+has('組み合わせを並べて見せる', rng.html(), '<span class="chip">2-3-1</span>');
+has('もう一方の組み合わせも見せる', rng.html(), '<span class="chip">3-2-1</span>');
+
+rng.click({ 'data-act': 'gen' });
+var rngBands = rng.html().match(/加熱 (\d+)個 ／ 標準 (\d+)個 ／ 低頻度 (\d+)個/g) || [];
+var inRange = rngBands.length === 20;
+var seenPat = {};
+for (var rz = 0; rz < rngBands.length; rz++) {
+  var pm = rngBands[rz].match(/加熱 (\d+)個 ／ 標準 (\d+)個 ／ 低頻度 (\d+)個/);
+  var ph = Number(pm[1]);
+  var pmid = Number(pm[2]);
+  var pc = Number(pm[3]);
+  if (ph < 2 || ph > 3 || pmid < 2 || pmid > 3 || pc !== 1) { inRange = false; }
+  seenPat[ph + '-' + pmid + '-' + pc] = 1;
+}
+check('20口すべてが指定した幅の中に収まる', inRange, true);
+check('幅の中の組み合わせが両方とも使われる',
+  seenPat['2-3-1'] === 1 && seenPat['3-2-1'] === 1, true);
+
+/*
+ * 帯の数字そのものが足りない場合。同じ6個だけが出続ける作り物の並びで、
+ * 標準帯が0個になる。当せん番号ではない。
+ */
+var SAME = [];
+for (var si = 0; si < 12; si++) {
+  SAME.push({ no: 800 - si, date: null, main: [1, 2, 3, 4, 5, 6], bonus: [7] });
+}
+var poor = boot({ saved: { game: 'loto6', windowSize: 12, bandMode: 'manual',
+  bandHotMin: 5, bandHotMax: 5, bandMidMin: 1, bandMidMax: 1, bandColdMin: 0, bandColdMax: 0,
+  data: { loto6: SAME, loto7: [] } } });
+poor.click({ 'data-act': 'tab', 'data-t': 'pred' });
+has('帯の数字が足りないときは中身を示す', poor.text(), '加熱帯6個・標準帯0個・低頻度帯37個です');
+
+var avgFew = boot({ saved: { game: 'loto6', windowSize: 24, bandMode: 'manual',
+  data: { loto6: REAL8, loto7: [] } } });
+avgFew.click({ 'data-act': 'tab', 'data-t': 'pred' });
+has('履歴が足りないときは平均にも断り書きを出す', avgFew.text(), 'この平均は対象期間そのもので帯を決めて数えた値です');
+
 
 var auto = boot({ saved: { game: 'loto6', windowSize: 24, predictCount: 5,
   data: { loto6: REAL8, loto7: [] } } });
@@ -559,6 +614,40 @@ has('全件のときも長さをそろえる', allText, '帯の判定を直前24
 has('全件のときの直し方を伝える', allText, '集計対象を24回以下にするか');
 check('全件で長さの違う窓を混ぜていない',
   sortedPairs(shownComposition(allWin.html())), sortedPairs(expAll.map));
+
+console.log('帯ごとの平均個数の表示');
+var avg = boot({ saved: { game: 'loto6', windowSize: 24, bandMode: 'manual',
+  data: { loto6: MECH, loto7: [] } } });
+avg.click({ 'data-act': 'tab', 'data-t': 'pred' });
+var avgText = avg.text();
+has('平均と範囲の見出しを出す', avg.html(), '<th>平均</th><th>範囲</th>');
+has('何回ぶんの平均かを伝える', avgText, '過去24回（帯の判定は直前24回）');
+var avgRow = avg.html().match(/<td class="l">加熱帯<\/td><td>([\d.]+)個<\/td><td>(\d+)〜(\d+)個<\/td><td>(\d+)個<\/td>/);
+check('加熱帯の平均を1行で出す', avgRow !== null, true);
+
+/* 同じ材料から独立に平均と範囲を出して突き合わせる */
+var expAvg = expectedComposition(MECH, 24, 43, 6);
+var tot = 0;
+var cnt = 0;
+var loH = null;
+var hiH = null;
+var pk;
+for (pk in expAvg.map) {
+  if (!Object.prototype.hasOwnProperty.call(expAvg.map, pk)) { continue; }
+  var hv = Number(pk.split('-')[0]);
+  tot += hv * expAvg.map[pk];
+  cnt += expAvg.map[pk];
+  if (loH === null || hv < loH) { loH = hv; }
+  if (hiH === null || hv > hiH) { hiH = hv; }
+}
+check('加熱帯の平均が集計と一致する', avgRow[1], (tot / cnt).toFixed(2));
+check('加熱帯の範囲が集計と一致する', avgRow[2] + '〜' + avgRow[3], loH + '〜' + hiH);
+check('平均表は自動のときも出る', (function () {
+  var au = boot({ saved: { game: 'loto6', windowSize: 24, bandMode: 'auto',
+    data: { loto6: MECH, loto7: [] } } });
+  au.click({ 'data-act': 'tab', 'data-t': 'pred' });
+  return au.text().indexOf('本数字が各帯から何個出ていたかの平均と範囲') >= 0;
+}()), true);
 
 /* 対象12回なら保有24件でそろう（対象の2倍が必要という関係を直接確かめる） */
 var pairBoot = boot({ saved: { game: 'loto6', windowSize: 12, data: { loto6: MECH.slice(0, 24), loto7: [] } } });

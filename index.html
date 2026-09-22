@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.53';
+  var APP_VERSION = '1.60';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -325,9 +325,12 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     freqTarget: 'main',
     freqSort: 'num',
     bandMode: 'auto',
-    bandHot: 2,
-    bandMid: 3,
-    bandCold: 1,
+    bandHotMin: 2,
+    bandHotMax: 2,
+    bandMidMin: 3,
+    bandMidMax: 3,
+    bandColdMin: 1,
+    bandColdMax: 1,
     predictCount: 5,
     useCarry: true,
     useConsec: true,
@@ -336,6 +339,12 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     useOdd: true,
     pasteOrder: 'auto',
     data: { loto6: [], loto7: [] }
+  };
+
+  /* 数として持つ設定（選択欄の値は文字列で来るため、数に直してから入れます） */
+  var NUM_KEYS = {
+    windowSize: 1, predictCount: 1,
+    bandHotMin: 1, bandHotMax: 1, bandMidMin: 1, bandMidMax: 1, bandColdMin: 1, bandColdMax: 1
   };
 
   var pasteText = '';
@@ -373,9 +382,12 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
         freqTarget: state.freqTarget,
         freqSort: state.freqSort,
         bandMode: state.bandMode,
-        bandHot: state.bandHot,
-        bandMid: state.bandMid,
-        bandCold: state.bandCold,
+        bandHotMin: state.bandHotMin,
+        bandHotMax: state.bandHotMax,
+        bandMidMin: state.bandMidMin,
+        bandMidMax: state.bandMidMax,
+        bandColdMin: state.bandColdMin,
+        bandColdMax: state.bandColdMax,
         predictCount: state.predictCount,
         useCarry: state.useCarry,
         useConsec: state.useConsec,
@@ -395,11 +407,22 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       var o = JSON.parse(raw);
       if (!o || typeof o !== 'object') { return; }
       var keys = ['game', 'windowSize', 'carryWithBonus', 'freqTarget', 'freqSort',
-        'bandMode', 'bandHot', 'bandMid', 'bandCold',
+        'bandMode', 'bandHotMin', 'bandHotMax', 'bandMidMin', 'bandMidMax',
+        'bandColdMin', 'bandColdMax',
         'predictCount', 'useCarry', 'useConsec', 'useTail',
         'useSum', 'useOdd', 'pasteOrder'];
-      for (var i = 0; i < keys.length; i++) {
+      var i;
+      for (i = 0; i < keys.length; i++) {
         if (typeof o[keys[i]] !== 'undefined') { state[keys[i]] = o[keys[i]]; }
+      }
+      /* v1.53 以前は帯ごとに1つの個数だけを保存していたので、幅なしの指定として読みます */
+      var old = [['bandHot', 'bandHotMin', 'bandHotMax'], ['bandMid', 'bandMidMin', 'bandMidMax'],
+        ['bandCold', 'bandColdMin', 'bandColdMax']];
+      for (i = 0; i < old.length; i++) {
+        if (typeof o[old[i][0]] === 'number') {
+          state[old[i][1]] = o[old[i][0]];
+          state[old[i][2]] = typeof o[old[i][2]] === 'number' ? o[old[i][2]] : o[old[i][0]];
+        }
       }
       if (o.data) {
         if (Array.isArray(o.data.loto6)) { state.data.loto6 = o.data.loto6; }
@@ -1042,9 +1065,9 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
   }
 
   var BANDS = [
-    { key: 'hot', label: '加熱帯' },
-    { key: 'mid', label: '標準帯' },
-    { key: 'cold', label: '低頻度帯' }
+    { key: 'hot', label: '加熱帯', min: 'bandHotMin', max: 'bandHotMax' },
+    { key: 'mid', label: '標準帯', min: 'bandMidMin', max: 'bandMidMax' },
+    { key: 'cold', label: '低頻度帯', min: 'bandColdMin', max: 'bandColdMax' }
   ];
 
   /*
@@ -1165,6 +1188,68 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     return list[list.length - 1];
   }
 
+  /* 過去の構成から、帯ごとの平均個数と出た範囲を出します（個数を自分で決めるときの目安） */
+  function bandAverages(comp) {
+    var out = {};
+    for (var b = 0; b < BANDS.length; b++) {
+      var key = BANDS[b].key;
+      var total = 0;
+      var cnt = 0;
+      var lo = null;
+      var hi = null;
+      for (var i = 0; i < comp.list.length; i++) {
+        var r = comp.list[i];
+        total += r[key] * r.count;
+        cnt += r.count;
+        if (lo === null || r[key] < lo) { lo = r[key]; }
+        if (hi === null || r[key] > hi) { hi = r[key]; }
+      }
+      out[key] = {
+        avg: cnt > 0 ? total / cnt : 0,
+        min: lo === null ? 0 : lo,
+        max: hi === null ? 0 : hi
+      };
+    }
+    return out;
+  }
+
+  /*
+   * 自分で決めた範囲の中から、合計が本数字の個数になる組み合わせを全部並べます。
+   * 帯の数字の個数を超える組み合わせは、選びようがないので外します。
+   */
+  function manualTargets(bi, game) {
+    var lim = {};
+    var b;
+    for (b = 0; b < BANDS.length; b++) {
+      var k = BANDS[b].key;
+      var lo = Math.max(0, Math.min(state[BANDS[b].min], game.main));
+      var hi = Math.max(0, Math.min(state[BANDS[b].max], game.main));
+      if (lo > hi) {
+        return { list: [], error: BANDS[b].label + 'は下限（' + lo + '個）が上限（' + hi + '個）を超えています。' };
+      }
+      lim[k] = { lo: lo, hi: hi, pool: bi.groups[k].length };
+    }
+    var list = [];
+    var sums = 0;
+    for (var h = lim.hot.lo; h <= lim.hot.hi; h++) {
+      for (var m = lim.mid.lo; m <= lim.mid.hi; m++) {
+        var c = game.main - h - m;
+        if (c < lim.cold.lo || c > lim.cold.hi) { continue; }
+        sums += 1;
+        if (h > lim.hot.pool || m > lim.mid.pool || c > lim.cold.pool) { continue; }
+        list.push({ hot: h, mid: m, cold: c });
+      }
+    }
+    if (sums === 0) {
+      return { list: [], error: '指定した範囲の中に、合計が' + game.main + '個になる組み合わせがありません。範囲を広げてください。' };
+    }
+    if (list.length === 0) {
+      return { list: [], error: 'いまの帯は加熱帯' + lim.hot.pool + '個・標準帯' + lim.mid.pool
+        + '個・低頻度帯' + lim.cold.pool + '個です。この中では、指定した範囲で' + game.main + '個そろう組み合わせがありません。' };
+    }
+    return { list: list, error: null };
+  }
+
   /* 指定された帯の構成どおりに、帯の中から等確率で数字を選びます */
   function pickByBands(bi, target) {
     var out = [];
@@ -1216,19 +1301,9 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var manual = null;
     var error = null;
     if (state.bandMode === 'manual') {
-      manual = { hot: state.bandHot, mid: state.bandMid, cold: state.bandCold };
-      if (manual.hot + manual.mid + manual.cold !== game.main) {
-        error = '帯ごとの個数の合計を' + game.main + '個にしてください。';
-      } else {
-        for (var b = 0; b < BANDS.length; b++) {
-          var key = BANDS[b].key;
-          if (manual[key] > bi.groups[key].length) {
-            error = BANDS[b].label + 'は' + bi.groups[key].length + '個しかないので、'
-              + manual[key] + '個は選べません。';
-            break;
-          }
-        }
-      }
+      var mt = manualTargets(bi, game);
+      error = mt.error;
+      manual = mt.list;
     }
 
     return {
@@ -1253,7 +1328,9 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var guard = 0;
     while (guard < 40) {
       guard += 1;
-      var target = ctx.manual || sampleComposition(ctx.comp);
+      var target = ctx.manual
+        ? ctx.manual[Math.floor(Math.random() * ctx.manual.length)]
+        : sampleComposition(ctx.comp);
       if (!target) { return null; }
       var targetCarry = state.useCarry ? sampleDist(c.carryDist, 1) : null;
       var needConsec = state.useConsec ? (Math.random() < ctx.pConsec) : null;
@@ -1330,6 +1407,38 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     next[index] = found;
     lastPicks = { game: state.game, result: packResult(ctx, next) };
     return true;
+  }
+
+  function countSelect(key, game) {
+    var h = '<select data-set="' + key + '">';
+    for (var v = 0; v <= game.main; v++) {
+      h += '<option value="' + v + '"' + (state[key] === v ? ' selected' : '') + '>' + v + '個</option>';
+    }
+    return h + '</select>';
+  }
+
+  /* 帯ごとの平均個数と、実際に出た範囲を並べます（個数を自分で決めるときの目安） */
+  function avgTable(comp, bi, game) {
+    var a = bandAverages(comp);
+    var h = '<table class="tb"><thead><tr><th class="l">帯</th><th>平均</th><th>範囲</th>'
+      + '<th>いまの数字</th></tr></thead><tbody>';
+    for (var b = 0; b < BANDS.length; b++) {
+      var key = BANDS[b].key;
+      h += '<tr><td class="l">' + BANDS[b].label + '</td>'
+        + '<td>' + fx(a[key].avg, 2) + '個</td>'
+        + '<td>' + a[key].min + '〜' + a[key].max + '個</td>'
+        + '<td>' + bi.groups[key].length + '個</td></tr>';
+    }
+    h += '<tr><td class="l">合計</td><td>' + game.main + '個</td><td>-</td><td>'
+      + game.max + '個</td></tr>';
+    h += '</tbody></table>';
+    h += '<p class="note">過去' + comp.used + '回（帯の判定は直前' + comp.span + '回）で、'
+      + '本数字が各帯から何個出ていたかの平均と範囲です。「いまの数字」はいま各帯に入っている数字の個数です。</p>';
+    if (comp.approx) {
+      h += '<p class="note" style="color:#b45309">履歴が足りないため、この平均は対象期間そのもので帯を決めて数えた値です。'
+        + '当せん番号が自分自身で出現回数を1増やすぶん、加熱帯が多めに出ます。</p>';
+    }
+    return h;
   }
 
   function compTable(comp) {
@@ -1417,22 +1526,32 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     h += '<h3 class="sub">帯ごとの個数をどう決めるか</h3>';
     h += '<select data-set="bandMode">'
       + '<option value="auto"' + (state.bandMode === 'auto' ? ' selected' : '') + '>過去の構成どおりに抽せんする</option>'
-      + '<option value="manual"' + (state.bandMode === 'manual' ? ' selected' : '') + '>自分で個数を決める</option>'
+      + '<option value="manual"' + (state.bandMode === 'manual' ? ' selected' : '') + '>自分で個数（幅）を決める</option>'
       + '</select>';
+    h += avgTable(comp, bi, game);
+
     if (state.bandMode === 'manual') {
-      var total = state.bandHot + state.bandMid + state.bandCold;
-      h += '<div class="row2" style="margin-top:8px">';
-      var keys = ['bandHot', 'bandMid', 'bandCold'];
       for (var m = 0; m < BANDS.length; m++) {
-        h += '<div><label class="fld">' + BANDS[m].label + '</label><select data-set="' + keys[m] + '">';
-        for (var v = 0; v <= game.main; v++) {
-          h += '<option value="' + v + '"' + (state[keys[m]] === v ? ' selected' : '') + '>' + v + '個</option>';
-        }
-        h += '</select></div>';
+        h += '<label class="fld">' + BANDS[m].label + '</label>';
+        h += '<div class="inline">';
+        h += '<div style="flex:1 1 100px">' + countSelect(BANDS[m].min, game) + '</div>';
+        h += '<span class="muted" style="font-size:13px">〜</span>';
+        h += '<div style="flex:1 1 100px">' + countSelect(BANDS[m].max, game) + '</div>';
+        h += '</div>';
       }
-      h += '</div>';
-      h += '<p class="note"' + (total === game.main ? '' : ' style="color:#b91c1c"') + '>合計 ' + total
-        + '個 / ' + game.main + '個' + (total === game.main ? '' : '（合計を' + game.main + '個にしてください）') + '</p>';
+      var mt = manualTargets(bi, game);
+      if (mt.error) {
+        h += '<p class="note" style="color:#b91c1c">' + esc(mt.error) + '</p>';
+      } else {
+        h += '<p class="note">合計' + game.main + '個になる組み合わせ' + mt.list.length + '通りから、'
+          + '1口ごとに等確率で選びます。</p>';
+        h += '<div class="chips">';
+        for (var t2 = 0; t2 < mt.list.length; t2++) {
+          h += '<span class="chip">' + mt.list[t2].hot + '-' + mt.list[t2].mid + '-' + mt.list[t2].cold + '</span>';
+        }
+        h += '</div>';
+        h += '<p class="note">加熱-標準-低頻度の個数です。</p>';
+      }
     } else {
       h += '<p class="note">過去' + comp.used + '回で実際にあった組み合わせの中から、出現した回数の多いものほど選ばれやすい形で抽せんします。'
         + '数えているのは、帯の判定に直前' + comp.span + '回ぶんがそろった回だけです。下の表がその内訳です。</p>';
@@ -1494,7 +1613,9 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     h += '<h3 class="sub">2. 帯ごとの個数を決める</h3>';
     h += '<p class="note">当せん番号は加熱帯だけで揃うわけではなく、毎回いくつかの帯が混ざります。'
       + 'そこで過去の当せん番号が「加熱何個・標準何個・低頻度何個」で構成されていたかを数え、'
-      + 'その実績の中から抽せんして今回の個数を決めます（上の表がその内訳）。自分で個数を決めることもできます。</p>';
+      + 'その実績の中から抽せんして今回の個数を決めます（上の表がその内訳）。'
+      + '帯ごとの平均個数を見ながら、自分で個数を決めることもできます。'
+      + 'その場合は「加熱3〜4個」のように幅を持たせられ、合計が本数字の個数になる組み合わせから1口ごとに等確率で選びます。</p>';
     h += '<p class="note">このとき、各回の帯は<b>その回より前のデータだけ</b>で決めます。'
       + '対象期間にその回自身を含めると、当せん番号は自分で出現回数を1増やすぶん必ず上の帯へ押し上げられ、'
       + '加熱帯がちょうど1個ぶん水増しされてしまうためです。これから買う回はまだ抽せんされていないので、'
@@ -1546,6 +1667,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + 'どの組み合わせも当せん確率は同じです。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.60</td><td class="l">予想タブに、帯ごとの平均個数と出た範囲の表を追加しました。個数を自分で決めるときは「加熱2〜3個」のように幅を指定でき、合計が本数字の個数になる組み合わせから1口ごとに等確率で選びます。あわせて、選択欄で選んだ個数が文字列のまま扱われ、合計の判定に失敗していた不具合を直しました。</td></tr>';
     h += '<tr><td class="l">v1.53</td><td class="l">帯の組み合わせを、窓の長さと標本の数の両方がそろったときだけ対象回数どおりに数えるようにしました。そろわないときは窓を保有件数の半分にそろえ直します。対象12回なら保有24件、対象24回なら保有48件でそろいます。</td></tr>';
     h += '<tr><td class="l">v1.52</td><td class="l">頻度帯の組み合わせを数えるとき、帯の判定に対象回数ぶんの履歴がそろった回だけを使うようにしました。これまでは古い回ほど短い履歴で帯を決めており、短い窓では加熱帯の母数が膨らむぶん、実績が加熱帯寄りに出ていました。保有データが対象回数の2倍に足りないときは、取れるだけ短い窓に全部そろえて数え、その旨を表示します。</td></tr>';
     h += '<tr><td class="l">v1.51</td><td class="l">当せん番号の自動取得の仕組みを削除しました。みずほ銀行がGitHub Actionsからの接続を拒否するため実現できず、v1.30でアプリ側の読み込みも廃止していたためです。取り込みは一覧ページの貼り付けだけになります。</td></tr>';
@@ -1694,7 +1816,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var key = t.getAttribute('data-set');
     if (!key) { return; }
     if (t.type === 'checkbox') { state[key] = t.checked; }
-    else if (key === 'windowSize' || key === 'predictCount') { state[key] = parseInt(t.value, 10); }
+    else if (NUM_KEYS[key]) { state[key] = parseInt(t.value, 10); }
     else { state[key] = t.value; }
     save();
     render();
