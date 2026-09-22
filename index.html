@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.12';
+  var APP_VERSION = '1.13';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -332,7 +332,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     useSum: true,
     useOdd: true,
     pasteOrder: 'auto',
-    remoteBase: 'https://raw.githubusercontent.com/burneycherry/loto/main/data',
+    remoteBase: '',
     autoFetch: false,
     data: { loto6: [], loto7: [] }
   };
@@ -399,6 +399,9 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
         'useSum', 'useOdd', 'pasteOrder', 'remoteBase', 'autoFetch'];
       for (var i = 0; i < keys.length; i++) {
         if (typeof o[keys[i]] !== 'undefined') { state[keys[i]] = o[keys[i]]; }
+      }
+      if (/mizuhobank\.co\.jp/i.test(String(state.remoteBase || ''))) {
+        state.remoteBase = '';
       }
       if (o.data) {
         if (Array.isArray(o.data.loto6)) { state.data.loto6 = o.data.loto6; }
@@ -576,22 +579,40 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     }
   }
 
+  function remoteUrls(game) {
+    var urls = [];
+    if (String(location.protocol).indexOf('http') === 0) {
+      urls.push('./data/' + game.key + '.json');
+    }
+    var base = String(state.remoteBase || '').trim().replace(/\/+$/, '');
+    if (base) {
+      var u = base + '/' + game.key + '.json';
+      if (urls.indexOf(u) < 0) { urls.push(u); }
+    }
+    if (urls.length === 0) { urls.push('./data/' + game.key + '.json'); }
+    return urls;
+  }
+
   function fetchRemote(silent) {
     var game = g();
     if (typeof fetch !== 'function') {
       setFetchMsg('このブラウザは自動取得に対応していません。貼り付けで取り込んでください。', true);
       return;
     }
-    var urls = [];
-    var base = String(state.remoteBase || '').replace(/\/+$/, '');
-    if (base) { urls.push(base + '/' + game.key + '.json'); }
-    var rel = './data/' + game.key + '.json';
-    if (urls.indexOf(rel) < 0) { urls.push(rel); }
+    if (/mizuhobank\.co\.jp/i.test(String(state.remoteBase || ''))) {
+      setFetchMsg('取得元にみずほのURLが入っています。ここはみずほではなく、GitHub Actions が保存した '
+        + game.key + '.json の置き場所を指定する欄です。「既定に戻す」を押してください。', true);
+      return;
+    }
+    var urls = remoteUrls(game);
     setFetchMsg('取得中…', false);
     var i = 0;
     function step() {
       if (i >= urls.length) {
-        setFetchMsg(silent ? '' : '取得できませんでした。取得元URLと通信環境を確認してください（みずほのサイトを直接読み込むことはブラウザの制限でできません）。', true);
+        if (silent) { setFetchMsg('', false); return; }
+        setFetchMsg('取得できませんでした。試したURL: ' + urls.join(' / ')
+          + ' ／ data/' + game.key + '.json がまだ作られていない可能性があります。'
+          + 'GitHub の Actions で「みずほ当せん番号の取得」が成功しているか確認してください。', true);
         return;
       }
       var url = urls[i];
@@ -611,7 +632,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
         if (!incoming || incoming.length === 0) { throw new Error('有効なデータがありません'); }
         var added = mergeInto(game.key, incoming);
         save();
-        setFetchMsg(game.label + ' を取得しました（読込 ' + incoming.length + '件 / 新規 ' + added + '件 / 保有 ' + state.data[game.key].length + '件）。', false);
+        setFetchMsg(game.label + ' を取得しました（読込 ' + incoming.length + '件 / 新規 ' + added
+          + '件 / 保有 ' + state.data[game.key].length + '件）。', false);
         render();
       }).catch(function () {
         step();
@@ -819,11 +841,13 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 
     h += '<div class="card">';
     h += '<h2 class="sec">みずほのデータを自動取得</h2>';
-    h += '<p class="note">GitHub Actions が1日1回みずほ銀行のページから当せん番号を取得し、保存したJSON（data/' + game.key + '.json）を読み込みます。ブラウザからみずほのサイトを直接読むことはCORS制限でできないため、この方式です。</p>';
-    h += '<label class="fld">取得元（ベースURL）</label>';
-    h += '<input type="text" id="remoteBase" data-set="remoteBase" value="' + esc(state.remoteBase) + '" placeholder="https://raw.githubusercontent.com/ユーザー名/loto/main/data">';
+    h += '<p class="note">GitHub Actions が1日1回みずほ銀行のページから当せん番号を取得し、リポジトリの data/' + game.key + '.json に保存します。このボタンはそのファイルを読み込みます。<b>1回押すだけで、最新回と保存済みの過去分（最大120回）がまとめて入ります。</b>ブラウザからみずほのサイトを直接読むことはCORS制限でできないため、この方式です。</p>';
+    h += '<label class="fld">保存済みJSONの置き場所（省略可）</label>';
+    h += '<input type="text" id="remoteBase" data-set="remoteBase" value="' + esc(state.remoteBase) + '" placeholder="空欄でOK（このページと同じ場所の data/ を見ます）">';
+    h += '<p class="note">空欄なら、このページと同じ場所の <code class="sm">data/' + game.key + '.json</code> を読みます（GitHub Pages で公開している場合はそのままでOK）。別の場所から読むときだけ <code class="sm">https://raw.githubusercontent.com/ユーザー名/loto/ブランチ名/data</code> のように指定します。<b>みずほのURLを入れる欄ではありません。</b></p>';
     h += '<div class="checks" style="margin-top:8px"><label><input type="checkbox" data-set="autoFetch"' + (state.autoFetch ? ' checked' : '') + '>起動時に自動で取得する</label></div>';
     h += '<div style="margin-top:10px"><button class="btn wide" data-act="fetch-remote">最新データを取得して追加</button></div>';
+    h += '<div style="margin-top:4px"><button class="btn gray" data-act="reset-remote">取得元を既定に戻す</button></div>';
     h += '<div id="fetchStatus">' + (fetchMsg ? '<p class="note"' + (fetchErr ? ' style="color:#b91c1c"' : '') + '>' + esc(fetchMsg) + '</p>' : '') + '</div>';
     h += '</div>';
 
@@ -1225,6 +1249,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '・データはこの端末のブラウザ内（localStorage）にのみ保存されます。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.13</td><td class="l">取得元の指定を分かりやすく変更。既定で同じ場所の data/ を読むようにし、みずほのURLが入っていた場合は警告して戻せるようにしました。ワークフローは push でも動くようにし、ブランチのままでも取得できます。</td></tr>';
     h += '<tr><td class="l">v1.12</td><td class="l">過去回の取得方法を月別ページ（index.html?year=2026&amp;month=8 形式）を遡る方式に変更。既知の回に追いつくと打ち切るため、日々の取得は1リクエストで済みます。</td></tr>';
     h += '<tr><td class="l">v1.11</td><td class="l">取得先URLをみずほの「抽せん数字一覧表」（takarakuji/check/loto/…）に修正。月別ページの見出しにある回号を誤って取り込まないよう解析を検証し、過去回ページの巡回を改善。</td></tr>';
     h += '<tr><td class="l">v1.10</td><td class="l">みずほ銀行の当せん番号を自動取得する仕組みを追加。GitHub Actions が1日1回取得したJSONをアプリから読み込みます（起動時の自動取得にも対応）。</td></tr>';
@@ -1391,6 +1416,12 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     else if (act === 'import-merge') { importText('merge'); }
     else if (act === 'manual-add') { manualAdd(); }
     else if (act === 'fetch-remote') { fetchRemote(false); }
+    else if (act === 'reset-remote') {
+      state.remoteBase = '';
+      setFetchMsg('取得元を既定（このページと同じ場所の data/）に戻しました。', false);
+      save();
+      render();
+    }
     else if (act === 'del-row') {
       var i = parseInt(t.getAttribute('data-i'), 10);
       state.data[state.game].splice(i, 1);

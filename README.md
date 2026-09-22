@@ -6,7 +6,7 @@
 
 iOS Safari / ホーム画面へ追加したPWAでの利用を主対象にしつつ、Android Chromeでも動作します。
 
-現在のバージョン: **v1.12**（`VERSION` を参照）
+現在のバージョン: **v1.13**（`VERSION` を参照）
 
 ## ファイル構成
 
@@ -17,7 +17,9 @@ iOS Safari / ホーム画面へ追加したPWAでの利用を主対象にしつ�
 | `sw.js` | Service Worker（オフライン動作・バージョン別キャッシュ） |
 | `icon.svg` | アイコン |
 | `tools/fetch_mizuho.js` | みずほ銀行から当せん番号を取得してJSONに保存するスクリプト |
+| `tools/test_app.js` | アプリ本体のテスト（ブラウザ・ネットワーク不要） |
 | `tools/test_parse.js` | 解析処理のテスト（ネットワーク不要） |
+| `CLAUDE.md` | 作業上の決まりごと |
 | `tools/testdata/` | みずほのページ構成を再現したテスト用HTML |
 | `.github/workflows/fetch-loto.yml` | 上記を毎日実行して `data/` に自動コミットするワークフロー |
 | `data/` | 取得済みの当せん番号（`loto6.json` / `loto7.json`） |
@@ -64,15 +66,18 @@ GitHub Actions（1日1回）
 
 ### 有効にする手順
 
-1. このブランチを既定ブランチ（`main`）にマージします。
-   GitHub Actions のスケジュール実行は既定ブランチのワークフローしか動きません。
-2. リポジトリの Settings → Actions → General → Workflow permissions で
+1. リポジトリの Settings → Actions → General → Workflow permissions で
    **Read and write permissions** を有効にします（`data/` への自動コミットに必要）。
-3. Actions タブから「みずほ当せん番号の取得」を一度手動実行（Run workflow）して、
-   `data/loto6.json` と `data/loto7.json` が作られることを確認します。
-4. アプリの「データ」タブの取得元URLを自分のリポジトリに合わせます。既定値は
-   `https://raw.githubusercontent.com/burneycherry/loto/main/data` です。
-   アプリ自体をGitHub Pagesなどで公開している場合は、同一オリジンの `./data/` も自動で試します。
+2. ワークフローは `push` でも動くので、作業ブランチに push すれば実行されます。
+   実行されたブランチの `data/` にコミットされます。
+   （`schedule` と `workflow_dispatch` は既定ブランチのワークフローしか動かない仕様です。
+   毎日の自動実行をしたい場合は既定ブランチに入れてください。）
+3. Actions の実行結果で `data/loto6.json` と `data/loto7.json` が作られたことを確認します。
+4. アプリの「データ」タブで「最新データを取得して追加」を押します。
+   取得元の欄は**空欄のままでOK**です（このページと同じ場所の `data/` を読みます）。
+   GitHub Pages で同じブランチを公開していれば、これだけで最新回と過去分がまとめて入ります。
+   別の場所に置いたJSONを読むときだけ、`https://raw.githubusercontent.com/ユーザー名/loto/ブランチ名/data`
+   のように指定します。**みずほのURLを入れる欄ではありません。**
 
 ### 手元で実行する
 
@@ -98,10 +103,15 @@ node tools/fetch_mizuho.js both data 120
 ### テスト
 
 ```
-node tools/test_parse.js
+node tools/test_app.js
+LOTO_SLEEP=0 node tools/test_parse.js
 ```
 
-`tools/testdata/` にある、みずほの「抽せん数字一覧表」の構成を再現したHTML
+`tools/test_app.js` は `index.html` の `<script>` を隔離環境で実行し、
+統計の集計値・予想の生成・貼り付け取り込み・自動取得の挙動・
+3か所のバージョンの一致・CSSの決まりごとを検査します（34項目）。
+
+`tools/test_parse.js` は、`tools/testdata/` にある、みずほの「抽せん数字一覧表」の構成を再現したHTML
 （回別・抽せん日・本数字・ボーナス数字・等級別の口数と金額・販売実績額・キャリーオーバー、
 および「2026年9月分　（第2134回〜第2139回）」の見出し）を使って、
 次を確認します。ネットワークは使いません。ワークフローも取得前にこれを実行します。
