@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.10';
+  var APP_VERSION = '1.11';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -1225,6 +1225,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '・データはこの端末のブラウザ内（localStorage）にのみ保存されます。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.11</td><td class="l">取得先URLをみずほの「抽せん数字一覧表」（takarakuji/check/loto/…）に修正。月別ページの見出しにある回号を誤って取り込まないよう解析を検証し、過去回ページの巡回を改善。</td></tr>';
     h += '<tr><td class="l">v1.10</td><td class="l">みずほ銀行の当せん番号を自動取得する仕組みを追加。GitHub Actions が1日1回取得したJSONをアプリから読み込みます（起動時の自動取得にも対応）。</td></tr>';
     h += '<tr><td class="l">v1.00</td><td class="l">初版。データ取り込み、①出現回数・出現率、②条件別出現確率（引っ張り／連続／末尾同一／合計／奇偶）、統計ベース予想、ロト6・ロト7対応、PWA対応。</td></tr>';
     h += '</tbody></table>';

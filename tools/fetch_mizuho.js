@@ -9,8 +9,9 @@
  * 例: node tools/fetch_mizuho.js both data 120
  *
  * 環境変数
- *   LOTO_PAGES  … バックナンバーを何ページまで辿るか（既定 4）
+ *   LOTO_PAGES  … 過去回のページを何ページまで辿るか（既定 8）
  *   LOTO_URL    … 起点URLを差し替える
+ *   LOTO_URLS   … 取得するURLをカンマ区切りで直接指定（巡回せずこの一覧だけを読む）
  *   LOTO_FILE   … ネットワークを使わず、保存済みHTMLファイルを解析する（動作確認用）
  *   LOTO_DEBUG  … 1 で詳細ログ
  *
@@ -28,7 +29,7 @@ var SPECS = {
     max: 43,
     main: 6,
     bonus: 1,
-    url: 'https://www.mizuhobank.co.jp/retail/takarakuji/loto/loto6/index.html'
+    url: 'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto6/index.html'
   },
   loto7: {
     key: 'loto7',
@@ -36,7 +37,7 @@ var SPECS = {
     max: 37,
     main: 7,
     bonus: 2,
-    url: 'https://www.mizuhobank.co.jp/retail/takarakuji/loto/loto7/index.html'
+    url: 'https://www.mizuhobank.co.jp/takarakuji/check/loto/loto7/index.html'
   }
 };
 
@@ -192,7 +193,16 @@ function extractDraws(html, spec) {
   return out;
 }
 
-function findBacknumberLinks(html, baseUrl) {
+/*
+ * 過去回のページへのリンクを集めます。
+ * みずほの「抽せん数字一覧表」は1か月分しか載らないため、
+ * 同じディレクトリ配下（例: /takarakuji/check/loto/loto6/）のHTMLと
+ * backnumber を含むリンクを候補にし、過去回らしいものを優先して辿ります。
+ */
+function findCandidateLinks(html, baseUrl) {
+  var base;
+  try { base = new URL(baseUrl); } catch (e) { return []; }
+  var dir = base.pathname.replace(/[^/]*$/, '');
   var out = [];
   var seen = {};
   var re = /href\s*=\s*["']([^"']+)["']/gi;
@@ -202,21 +212,29 @@ function findBacknumberLinks(html, baseUrl) {
       .replace(/&amp;/gi, '&')
       .replace(/&#38;/g, '&')
       .trim();
-    if (!/backnumber/i.test(href)) { continue; }
-    if (/\.(pdf|csv|zip)$/i.test(href)) { continue; }
-    var abs;
-    var host;
-    try {
-      var u = new URL(href, baseUrl);
-      abs = u.toString();
-      host = u.host;
-    } catch (e) { continue; }
-    if (host !== new URL(baseUrl).host) { continue; }
+    if (!href || href.charAt(0) === '#' || /^(javascript|mailto|tel):/i.test(href)) { continue; }
+    var u;
+    try { u = new URL(href, baseUrl); } catch (e2) { continue; }
+    if (u.host !== base.host) { continue; }
+    u.hash = '';
+    var abs = u.toString();
+    if (abs === baseUrl) { continue; }
+    if (/\.(pdf|csv|zip|jpg|png|gif|css|js)$/i.test(u.pathname)) { continue; }
+    var inDir = u.pathname.indexOf(dir) === 0;
+    var isBack = /backnumber/i.test(u.pathname + u.search);
+    if (!inDir && !isBack) { continue; }
+    if (!/\.html?$/i.test(u.pathname) && !u.search) { continue; }
     if (seen[abs]) { continue; }
     seen[abs] = 1;
-    out.push(abs);
+    var score = 0;
+    if (isBack) { score += 4; }
+    if (/fromto|detail/i.test(u.pathname + u.search) && isBack) { score += 2; }
+    if (/(19|20)\d{2}/.test(u.pathname + u.search)) { score += 2; }
+    if (/index\.html?$/i.test(u.pathname) && !u.search) { score -= 1; }
+    out.push({ url: abs, score: score });
   }
-  return out;
+  out.sort(function (a, b) { return b.score - a.score; });
+  return out.map(function (x) { return x.url; });
 }
 
 function mergeDraws(base, add) {
@@ -243,24 +261,49 @@ async function collect(spec, limit, pages) {
     return draws.slice(0, limit);
   }
 
+  if (process.env.LOTO_URLS) {
+    var listed = process.env.LOTO_URLS.split(',').map(function (x) { return x.trim(); })
+      .filter(function (x) { return x.length > 0; });
+    for (var u2 = 0; u2 < listed.length; u2++) {
+      if (u2 > 0) { await sleep(1200); }
+      try {
+        var page = await fetchText(listed[u2]);
+        var was = draws.length;
+        draws = mergeDraws(draws, extractDraws(page, spec));
+        log('  ' + spec.label + ': ' + listed[u2] + ' から ' + (draws.length - was) + '件（計 ' + draws.length + '件）');
+      } catch (e5) {
+        log('  ' + spec.label + ': 取得失敗 ' + listed[u2] + ' (' + e5.message + ')');
+      }
+    }
+    return draws.slice(0, limit);
+  }
+
   var html = await fetchText(startUrl);
   draws = mergeDraws(draws, extractDraws(html, spec));
   log('  ' + spec.label + ': 起点ページから ' + draws.length + '件');
 
-  var links = findBacknumberLinks(html, startUrl);
-  dbg('バックナンバー候補 ' + links.length + '件');
-  var visited = 0;
-  for (var i = 0; i < links.length && visited < pages && draws.length < limit; i++) {
+  var links = findCandidateLinks(html, startUrl);
+  dbg('過去回の候補リンク ' + links.length + '件');
+  var got = 0;
+  var tried = 0;
+  var maxTry = pages * 3;
+  for (var i = 0; i < links.length && got < pages && tried < maxTry && draws.length < limit; i++) {
+    tried += 1;
     await sleep(1200);
     try {
       var sub = await fetchText(links[i]);
-      visited += 1;
       var before = draws.length;
       draws = mergeDraws(draws, extractDraws(sub, spec));
-      log('  ' + spec.label + ': ' + links[i] + ' から ' + (draws.length - before) + '件追加（計 ' + draws.length + '件）');
-      var more = findBacknumberLinks(sub, links[i]);
-      for (var j = 0; j < more.length; j++) {
-        if (links.indexOf(more[j]) < 0) { links.push(more[j]); }
+      var added = draws.length - before;
+      if (added > 0) {
+        got += 1;
+        log('  ' + spec.label + ': ' + links[i] + ' から ' + added + '件追加（計 ' + draws.length + '件）');
+        var more = findCandidateLinks(sub, links[i]);
+        for (var j = 0; j < more.length; j++) {
+          if (links.indexOf(more[j]) < 0) { links.push(more[j]); }
+        }
+      } else {
+        dbg('過去回なし: ' + links[i]);
       }
     } catch (e) {
       log('  ' + spec.label + ': 取得失敗 ' + links[i] + ' (' + e.message + ')');
@@ -297,7 +340,7 @@ async function main() {
   var target = process.argv[2] || 'both';
   var outDir = process.argv[3] || 'data';
   var limit = Number(process.argv[4] || 120);
-  var pages = Number(process.env.LOTO_PAGES || 4);
+  var pages = Number(process.env.LOTO_PAGES || 8);
   var keys = target === 'both' ? ['loto6', 'loto7'] : [target];
   var failed = 0;
 
@@ -342,7 +385,19 @@ async function main() {
   log('完了');
 }
 
-main().catch(function (e) {
-  log('想定外のエラー: ' + (e && e.stack ? e.stack : e));
-  process.exit(1);
-});
+module.exports = {
+  SPECS: SPECS,
+  decodeBody: decodeBody,
+  htmlToText: htmlToText,
+  extractDraws: extractDraws,
+  findCandidateLinks: findCandidateLinks,
+  mergeDraws: mergeDraws,
+  validate: validate
+};
+
+if (require.main === module) {
+  main().catch(function (e) {
+    log('想定外のエラー: ' + (e && e.stack ? e.stack : e));
+    process.exit(1);
+  });
+}
