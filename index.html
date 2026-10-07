@@ -301,7 +301,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.60';
+  var APP_VERSION = '1.70';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -331,6 +331,12 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     bandMidMax: 3,
     bandColdMin: 1,
     bandColdMax: 1,
+    rangeMode: 'off',
+    dec0Min: 0, dec0Max: 7,
+    dec1Min: 0, dec1Max: 7,
+    dec2Min: 0, dec2Max: 7,
+    dec3Min: 0, dec3Max: 7,
+    dec4Min: 0, dec4Max: 7,
     predictCount: 5,
     useCarry: true,
     useConsec: true,
@@ -344,8 +350,14 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
   /* 数として持つ設定（選択欄の値は文字列で来るため、数に直してから入れます） */
   var NUM_KEYS = {
     windowSize: 1, predictCount: 1,
-    bandHotMin: 1, bandHotMax: 1, bandMidMin: 1, bandMidMax: 1, bandColdMin: 1, bandColdMax: 1
+    bandHotMin: 1, bandHotMax: 1, bandMidMin: 1, bandMidMax: 1, bandColdMin: 1, bandColdMax: 1,
+    dec0Min: 1, dec0Max: 1, dec1Min: 1, dec1Max: 1, dec2Min: 1, dec2Max: 1,
+    dec3Min: 1, dec3Max: 1, dec4Min: 1, dec4Max: 1
   };
+
+  /* 十の位の区間ごとの個数の設定名（保存と読み込みで使います） */
+  var DEC_KEYS = ['dec0Min', 'dec0Max', 'dec1Min', 'dec1Max', 'dec2Min', 'dec2Max',
+    'dec3Min', 'dec3Max', 'dec4Min', 'dec4Max'];
 
   var pasteText = '';
   var lastPicks = null;
@@ -388,6 +400,12 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
         bandMidMax: state.bandMidMax,
         bandColdMin: state.bandColdMin,
         bandColdMax: state.bandColdMax,
+        rangeMode: state.rangeMode,
+        dec0Min: state.dec0Min, dec0Max: state.dec0Max,
+        dec1Min: state.dec1Min, dec1Max: state.dec1Max,
+        dec2Min: state.dec2Min, dec2Max: state.dec2Max,
+        dec3Min: state.dec3Min, dec3Max: state.dec3Max,
+        dec4Min: state.dec4Min, dec4Max: state.dec4Max,
         predictCount: state.predictCount,
         useCarry: state.useCarry,
         useConsec: state.useConsec,
@@ -408,12 +426,15 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       if (!o || typeof o !== 'object') { return; }
       var keys = ['game', 'windowSize', 'carryWithBonus', 'freqTarget', 'freqSort',
         'bandMode', 'bandHotMin', 'bandHotMax', 'bandMidMin', 'bandMidMax',
-        'bandColdMin', 'bandColdMax',
+        'bandColdMin', 'bandColdMax', 'rangeMode',
         'predictCount', 'useCarry', 'useConsec', 'useTail',
         'useSum', 'useOdd', 'pasteOrder'];
       var i;
       for (i = 0; i < keys.length; i++) {
         if (typeof o[keys[i]] !== 'undefined') { state[keys[i]] = o[keys[i]]; }
+      }
+      for (i = 0; i < DEC_KEYS.length; i++) {
+        if (typeof o[DEC_KEYS[i]] === 'number') { state[DEC_KEYS[i]] = o[DEC_KEYS[i]]; }
       }
       /* v1.53 以前は帯ごとに1つの個数だけを保存していたので、幅なしの指定として読みます */
       var old = [['bandHot', 'bandHotMin', 'bandHotMax'], ['bandMid', 'bandMidMin', 'bandMidMax'],
@@ -774,6 +795,91 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     return res;
   }
 
+  /* 十の位で数字を区切った区間です（一桁台・10台・20台…）。ロト7は30台まで */
+  function decades(game) {
+    var out = [];
+    for (var d = 0; d * 10 <= game.max; d++) {
+      var lo = d === 0 ? 1 : d * 10;
+      var hi = Math.min(d * 10 + 9, game.max);
+      out.push({ idx: d, label: d === 0 ? '一桁台' : (d * 10) + '台', lo: lo, hi: hi, size: hi - lo + 1 });
+    }
+    return out;
+  }
+
+  function decadeCounts(nums, n) {
+    var p = [];
+    var i;
+    for (i = 0; i < n; i++) { p.push(0); }
+    for (i = 0; i < nums.length; i++) { p[Math.floor(nums[i] / 10)] += 1; }
+    return p;
+  }
+
+  function comb(n, k) {
+    if (k < 0 || k > n) { return 0; }
+    var r = 1;
+    for (var i = 1; i <= k; i++) { r = r * (n - k + i) / i; }
+    return r;
+  }
+
+  /* 全 N 個から n 個を選ぶとき、K 個ある区間からちょうど k 個入る確率（超幾何分布） */
+  function hyper(N, K, n, k) {
+    return comb(K, k) * comb(N - K, n - k) / comb(N, n);
+  }
+
+  /*
+   * ランダムに選んだときの、1回あたりの個数の平均と、w 回平均のゆらぎ（標準偏差）。
+   * 1回で pick 個を重複なしで選ぶので、分散は超幾何分布のものを使います。
+   */
+  function decadeTheory(game, size, pick, w) {
+    var p = size / game.max;
+    var mean = pick * p;
+    var v = pick * p * (1 - p) * (game.max - pick) / (game.max - 1);
+    return { mean: mean, sd: w > 0 ? Math.sqrt(v / w) : 0 };
+  }
+
+  /*
+   * 各回の本数字が、十の位の区間ごとに何個ずつ入っていたかを集計します。
+   * 区間は数字そのもので決まるので、頻度帯のように「その回自身が数えに入る」偏りは起きません。
+   */
+  function decadeStats(win, game) {
+    var ds = decades(game);
+    var out = [];
+    var d, i, k;
+    for (d = 0; d < ds.length; d++) {
+      out.push({ dec: ds[d], dist: [0, 0, 0, 0], total: 0, min: null, max: null, theory: [] });
+    }
+    for (i = 0; i < win.length; i++) {
+      var p = decadeCounts(win[i].main, ds.length);
+      for (d = 0; d < ds.length; d++) {
+        k = p[d];
+        out[d].dist[Math.min(k, 3)] += 1;
+        out[d].total += k;
+        if (out[d].min === null || k < out[d].min) { out[d].min = k; }
+        if (out[d].max === null || k > out[d].max) { out[d].max = k; }
+      }
+    }
+    for (d = 0; d < ds.length; d++) {
+      var r = out[d];
+      var rest = 1;
+      for (k = 0; k < 3; k++) {
+        var pk = hyper(game.max, r.dec.size, game.main, k);
+        r.theory.push(pk);
+        rest -= pk;
+      }
+      r.theory.push(Math.max(0, rest));
+      r.avg = win.length > 0 ? r.total / win.length : 0;
+      r.th = decadeTheory(game, r.dec.size, game.main, win.length);
+      if (r.min === null) { r.min = 0; r.max = 0; }
+    }
+    return out;
+  }
+
+  function decadeLine(decs, stats) {
+    var parts = [];
+    for (var d = 0; d < stats.length; d++) { parts.push(stats[d].dec.label + ' ' + decs[d] + '個'); }
+    return parts.join(' ／ ');
+  }
+
   function chips(nums, cls) {
     return nums.map(function (n) {
       return '<span class="chip ' + (cls || '') + '">' + pad2(n) + '</span>';
@@ -926,6 +1032,30 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     }
     h += '<p class="note">帯の判定は本数字の出現回数だけで行います（ボーナス数字は含めません）。予想タブでこの帯を使います。</p>';
 
+    var dsF = decades(game);
+    h += '<h3 class="sub">十の位ごとの出現（' + dsF[0].label + '〜' + dsF[dsF.length - 1].label + '）</h3>';
+    h += '<table class="tb"><thead><tr><th class="l">区間</th><th class="l">数字</th><th>延べ</th>'
+      + '<th>1回平均</th><th>理論</th><th>比</th></tr></thead><tbody>';
+    for (var di = 0; di < dsF.length; di++) {
+      var dd = dsF[di];
+      var dTot = 0;
+      for (var dn = dd.lo; dn <= dd.hi; dn++) { dTot += counts[dn]; }
+      var dAvg = dTot / win.length;
+      var dTh = decadeTheory(game, dd.size, perDraw, win.length);
+      h += '<tr><td class="l">' + dd.label + '</td>'
+        + '<td class="l">' + dd.lo + '〜' + dd.hi + '<br><span class="muted" style="font-size:11px">' + dd.size + '個</span></td>'
+        + '<td>' + dTot + '</td>'
+        + '<td><b>' + fx(dAvg, 2) + '</b></td>'
+        + '<td>' + fx(dTh.mean, 2) + '<br><span class="muted" style="font-size:11px">±' + fx(dTh.sd, 2) + '</span></td>'
+        + '<td>' + fx(dTh.mean > 0 ? dAvg / dTh.mean * 100 : 0, 0) + '%</td></tr>';
+    }
+    h += '</tbody></table>';
+    h += '<p class="note">区間ごとに数字の個数が違います（' + dsF[0].label + 'は' + dsF[0].size + '個、'
+      + dsF[dsF.length - 1].label + 'は' + dsF[dsF.length - 1].size + '個）。延べの出現数ではなく、'
+      + '1回あたりの平均を理論値（ランダムに選んだときの平均）と比べてください。比が100%なら数字の個数どおりです。'
+      + '理論値の下の ± は、ランダムでも対象' + win.length + '回の平均がこのくらい上下するという目安（標準偏差）で、'
+      + 'この幅の1〜2倍くらいの差は偶然でもよく起きます。</p>';
+
     h += '<h3 class="sub">数字別一覧</h3>';
     h += '<div class="inline"><select data-set="freqSort">'
       + '<option value="num"' + (state.freqSort === 'num' ? ' selected' : '') + '>数字順</option>'
@@ -1028,6 +1158,27 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     h += '<div><b>' + c.oddMin + '〜' + c.oddMax + '</b><span>奇数の個数</span></div>';
     h += '<div><b>' + fx(c.oddAvg, 2) + '</b><span>奇数の平均個数</span></div>';
     h += '</div>';
+
+    h += '<h3 class="sub">十の位ごとの個数（偏り）</h3>';
+    var dsC = decadeStats(win, game);
+    h += '<table class="tb"><thead><tr><th class="l">区間</th><th>0個</th><th>1個</th><th>2個</th>'
+      + '<th>3個以上</th><th>平均</th></tr></thead><tbody>';
+    for (var dc = 0; dc < dsC.length; dc++) {
+      var st = dsC[dc];
+      h += '<tr><td class="l">' + st.dec.label + '<br><span class="muted" style="font-size:11px">'
+        + st.dec.lo + '〜' + st.dec.hi + '</span></td>';
+      for (var dk = 0; dk < 4; dk++) {
+        h += '<td><b>' + fx(rate(st.dist[dk], win.length), 0) + '%</b><br>'
+          + '<span class="muted" style="font-size:11px">' + fx(st.theory[dk] * 100, 0) + '%</span></td>';
+      }
+      h += '<td><b>' + fx(st.avg, 2) + '</b><br><span class="muted" style="font-size:11px">'
+        + fx(st.th.mean, 2) + '</span></td></tr>';
+    }
+    h += '</tbody></table>';
+    h += '<p class="note">上段が実績（対象' + win.length + '回のうち、その区間から本数字が何個出た回が何%あったか）、'
+      + '下段がランダムに選んだときの理論値です。上段と下段の差が偏りです。'
+      + '対象' + win.length + '回では、偶然でも' + Math.round(50 / Math.sqrt(win.length)) + 'ポイント前後の差はよく出ます。'
+      + '予想タブで、区間ごとの個数をこの範囲に合わせたり、自分で決めたりできます。</p>';
 
     h += '<h3 class="sub">頻度帯の組み合わせ</h3>';
     var compC = bandComposition(game);
@@ -1250,6 +1401,49 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     return { list: list, error: null };
   }
 
+  /*
+   * 十の位の区間ごとの個数の下限・上限を決めます。指定しないときは list が null。
+   * 「過去にあった範囲」は対象期間で実際に出た最小〜最大、「自分で決める」は選んだ幅です。
+   */
+  function decadeLimits(stats, game) {
+    if (state.rangeMode !== 'auto' && state.rangeMode !== 'manual') { return { list: null, error: null }; }
+    var list = [];
+    var sumLo = 0;
+    var sumHi = 0;
+    for (var d = 0; d < stats.length; d++) {
+      var cap = Math.min(game.main, stats[d].dec.size);
+      var lo;
+      var hi;
+      if (state.rangeMode === 'auto') {
+        lo = stats[d].min;
+        hi = stats[d].max;
+      } else {
+        lo = Math.max(0, Math.min(state['dec' + d + 'Min'], cap));
+        hi = Math.max(0, Math.min(state['dec' + d + 'Max'], cap));
+        if (lo > hi) {
+          return { list: null, error: stats[d].dec.label + 'は下限（' + lo + '個）が上限（' + hi + '個）を超えています。' };
+        }
+      }
+      list.push({ lo: lo, hi: hi });
+      sumLo += lo;
+      sumHi += hi;
+    }
+    if (sumLo > game.main) {
+      return { list: null, error: '十の位の区間の下限の合計が' + sumLo + '個で、本数字の個数（' + game.main + '個）を超えています。' };
+    }
+    if (sumHi < game.main) {
+      return { list: null, error: '十の位の区間の上限の合計が' + sumHi + '個で、本数字の個数（' + game.main + '個）に届きません。' };
+    }
+    return { list: list, error: null };
+  }
+
+  function decadeOk(decs, lim) {
+    for (var d = 0; d < lim.length; d++) {
+      if (decs[d] < lim[d].lo || decs[d] > lim[d].hi) { return false; }
+    }
+    return true;
+  }
+
   /* 指定された帯の構成どおりに、帯の中から等確率で数字を選びます */
   function pickByBands(bi, target) {
     var out = [];
@@ -1267,7 +1461,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     return out.sort(asc);
   }
 
-  function evalSet(s, prevSet, bi) {
+  function evalSet(s, prevSet, bi, nDec) {
     var runs = runsOf(s).filter(function (r) { return r.length >= 2; });
     var maxRun = 0;
     for (var i = 0; i < runs.length; i++) { maxRun = Math.max(maxRun, runs[i].length); }
@@ -1278,7 +1472,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     for (var k = 0; k < s.length; k++) { if (s[k] % 2 === 1) { odd += 1; } }
     return {
       runs: runs, maxRun: maxRun, tails: tg, carry: carry, odd: odd,
-      sum: sum(s), bands: bandPattern(s, bi)
+      sum: sum(s), bands: bandPattern(s, bi), decs: decadeCounts(s, nDec)
     };
   }
 
@@ -1305,6 +1499,9 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       error = mt.error;
       manual = mt.list;
     }
+    var decStats = decadeStats(win, game);
+    var dl = decadeLimits(decStats, game);
+    if (!error && dl.error) { error = dl.error; }
 
     return {
       game: game,
@@ -1315,6 +1512,10 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       prevSet: prevSet,
       manual: manual,
       error: error,
+      decStats: decStats,
+      decLim: dl.list,
+      nDec: decStats.length,
+      decFail: false,
       pConsec: rate(c.consecAny, c.n) / 100,
       pTail: rate(c.tailAny, c.n) / 100,
       sumLo: Math.floor(c.sumMin - (c.sumMax - c.sumMin) * 0.08),
@@ -1336,11 +1537,15 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       var needConsec = state.useConsec ? (Math.random() < ctx.pConsec) : null;
       var needTail = state.useTail ? (Math.random() < ctx.pTail) : null;
       var relax = 0;
+      var decPass = 0;
       while (relax <= 5) {
         for (var t = 0; t < 2500; t++) {
           var s = pickByBands(ctx.bi, target);
           if (!s) { break; }
-          var ev = evalSet(s, ctx.prevSet, ctx.bi);
+          var ev = evalSet(s, ctx.prevSet, ctx.bi, ctx.nDec);
+          /* 十の位の区間は利用者の指定なので、帯の構成と同じくゆるめません */
+          if (ctx.decLim && !decadeOk(ev.decs, ctx.decLim)) { continue; }
+          decPass += 1;
           if (relax < 5 && state.useSum && (ev.sum < ctx.sumLo || ev.sum > ctx.sumHi)) { continue; }
           if (relax < 4 && state.useOdd && (ev.odd < c.oddMin || ev.odd > c.oddMax)) { continue; }
           if (relax < 3 && needTail !== null && (ev.tails.length > 0) !== needTail) { continue; }
@@ -1349,13 +1554,16 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
           if (seen[s.join('-')]) { continue; }
           return { nums: s, ev: ev, relax: relax, target: target };
         }
+        /* 区間に合う組み合わせが1つも出ない構成は、ほかの条件をゆるめても見込みがありません */
+        if (ctx.decLim && decPass === 0) { break; }
         relax += 1;
       }
     }
+    if (ctx.decLim) { ctx.decFail = true; }
     return null;
   }
 
-  function packResult(ctx, picks) {
+  function packResult(ctx, picks, requested) {
     var relaxed = false;
     for (var i = 0; i < picks.length; i++) {
       if (picks[i].relax > 0) { relaxed = true; }
@@ -1363,7 +1571,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     return {
       picks: picks, cond: ctx.cond, prev: ctx.prev, relaxed: relaxed,
       sumLo: ctx.sumLo, sumHi: ctx.sumHi, pConsec: ctx.pConsec, pTail: ctx.pTail,
-      bi: ctx.bi, comp: ctx.comp
+      bi: ctx.bi, comp: ctx.comp, decStats: ctx.decStats, requested: requested
     };
   }
 
@@ -1379,7 +1587,14 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       seen[found.nums.join('-')] = 1;
       picks.push(found);
     }
-    return packResult(ctx, picks);
+    if (picks.length === 0 && ctx.decLim) {
+      return {
+        error: '十の位の区間の指定と、頻度帯の個数などの条件を同時に満たす組み合わせが見つかりませんでした。'
+          + '区間の幅を広げるか、帯の個数を見直してください。',
+        bi: ctx.bi, comp: ctx.comp
+      };
+    }
+    return packResult(ctx, picks, state.predictCount);
   }
 
   /* 表示中の予想のうち、指定した1口だけを作り直します */
@@ -1405,7 +1620,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     if (!found) { return false; }
     var next = picks.slice();
     next[index] = found;
-    lastPicks = { game: state.game, result: packResult(ctx, next) };
+    lastPicks = { game: state.game, result: packResult(ctx, next, lastPicks.result.requested) };
     return true;
   }
 
@@ -1438,6 +1653,33 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       h += '<p class="note" style="color:#b45309">履歴が足りないため、この平均は対象期間そのもので帯を決めて数えた値です。'
         + '当せん番号が自分自身で出現回数を1増やすぶん、加熱帯が多めに出ます。</p>';
     }
+    return h;
+  }
+
+  /* 十の位の区間ごとの選択欄。区間の数字の個数より多くは選べません */
+  function decSelect(key, cap) {
+    var cur = Math.min(state[key], cap);
+    var h = '<select data-set="' + key + '">';
+    for (var v = 0; v <= cap; v++) {
+      h += '<option value="' + v + '"' + (cur === v ? ' selected' : '') + '>' + v + '個</option>';
+    }
+    return h + '</select>';
+  }
+
+  /* 区間ごとの平均個数と、実際に出た範囲（個数を決めるときの目安） */
+  function decAvgTable(stats, n) {
+    var h = '<table class="tb"><thead><tr><th class="l">区間</th><th class="l">数字</th>'
+      + '<th>平均</th><th>範囲</th></tr></thead><tbody>';
+    for (var d = 0; d < stats.length; d++) {
+      var st = stats[d];
+      h += '<tr><td class="l">' + st.dec.label + '</td>'
+        + '<td class="l">' + st.dec.lo + '〜' + st.dec.hi + '</td>'
+        + '<td>' + fx(st.avg, 2) + '個<br><span class="muted" style="font-size:11px">理論 ' + fx(st.th.mean, 2) + '</span></td>'
+        + '<td>' + st.min + '〜' + st.max + '個</td></tr>';
+    }
+    h += '</tbody></table>';
+    h += '<p class="note">対象' + n + '回で、本数字が各区間から何個出ていたかの平均と範囲です。'
+      + '理論はランダムに選んだときの平均です。</p>';
     return h;
   }
 
@@ -1558,6 +1800,39 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       h += compTable(comp);
     }
 
+    var decStatsP = decadeStats(win, game);
+    h += '<h3 class="sub">十の位ごとの個数（' + decStatsP[0].dec.label + '〜'
+      + decStatsP[decStatsP.length - 1].dec.label + '）</h3>';
+    h += '<select data-set="rangeMode">'
+      + '<option value="off"' + (state.rangeMode === 'off' ? ' selected' : '') + '>指定しない</option>'
+      + '<option value="auto"' + (state.rangeMode === 'auto' ? ' selected' : '') + '>過去にあった範囲に収める</option>'
+      + '<option value="manual"' + (state.rangeMode === 'manual' ? ' selected' : '') + '>自分で個数（幅）を決める</option>'
+      + '</select>';
+    h += decAvgTable(decStatsP, win.length);
+    if (state.rangeMode === 'manual') {
+      for (var dm = 0; dm < decStatsP.length; dm++) {
+        var cap = Math.min(game.main, decStatsP[dm].dec.size);
+        h += '<label class="fld">' + decStatsP[dm].dec.label + '（' + decStatsP[dm].dec.lo + '〜'
+          + decStatsP[dm].dec.hi + '）</label>';
+        h += '<div class="inline">';
+        h += '<div style="flex:1 1 100px">' + decSelect('dec' + dm + 'Min', cap) + '</div>';
+        h += '<span class="muted" style="font-size:13px">〜</span>';
+        h += '<div style="flex:1 1 100px">' + decSelect('dec' + dm + 'Max', cap) + '</div>';
+        h += '</div>';
+      }
+      var dlP = decadeLimits(decStatsP, game);
+      if (dlP.error) {
+        h += '<p class="note" style="color:#b91c1c">' + esc(dlP.error) + '</p>';
+      } else {
+        h += '<p class="note">各区間の個数がこの幅に入る組み合わせだけを選びます。'
+          + '区間の個数を絞るほど、その区間の数字が出る割合を上げ下げできます。</p>';
+      }
+    } else if (state.rangeMode === 'auto') {
+      h += '<p class="note">各区間の個数を、対象' + win.length + '回で実際にあった範囲（上の表の「範囲」）に収めます。</p>';
+    } else {
+      h += '<p class="note">区間の個数は見ません。上の表は目安として出しています。</p>';
+    }
+
     h += '<h3 class="sub">その他の設定</h3>';
     h += '<div class="row2">';
     h += '<div><label class="fld">口数</label><select data-set="predictCount">';
@@ -1581,6 +1856,10 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
         h += '<p class="note" style="color:#b91c1c">' + esc(r.error) + '</p>';
       } else {
         h += '<h3 class="sub">生成結果</h3>';
+        if (r.requested && r.picks.length < r.requested) {
+          h += '<p class="note" style="color:#b45309">指定した条件では' + r.picks.length + '口しか作れませんでした（'
+            + r.requested + '口を指定）。条件をゆるめると増やせます。</p>';
+        }
         h += '<p class="note">前回（' + (typeof r.prev.no === 'number' ? '第' + r.prev.no + '回' : '最新回') + '）: '
           + r.prev.main.map(pad2).join(' ') + ' / B ' + r.prev.bonus.map(pad2).join(' ') + '</p>';
         for (var p = 0; p < r.picks.length; p++) {
@@ -1591,6 +1870,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
           var runTxt = pick.ev.runs.length ? pick.ev.runs.map(function (x) { return x.map(pad2).join('-'); }).join(' / ') : 'なし';
           h += '<div class="meta"><b>加熱 ' + pick.ev.bands.hot + '個 ／ 標準 ' + pick.ev.bands.mid
             + '個 ／ 低頻度 ' + pick.ev.bands.cold + '個</b></div>';
+          h += '<div class="meta">' + decadeLine(pick.ev.decs, r.decStats) + '</div>';
           h += '<div class="meta">引っ張り ' + pick.ev.carry + '個 ／ 連続 ' + runTxt + ' ／ 末尾一致 ' + tailTxt
             + ' ／ 合計 ' + pick.ev.sum + ' ／ 奇数 ' + pick.ev.odd + '個'
             + (pick.relax > 0 ? ' ／ <span style="color:#b45309">条件を一部緩和</span>' : '') + '</div>';
@@ -1634,8 +1914,13 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '<tr><td class="l">奇数の個数</td><td class="l">②の最小〜最大の範囲に収めます</td></tr>'
       + '</tbody></table>';
     h += '<p class="note">見つからないときは、引っ張り → 連続 → 末尾 → 奇数 → 合計 の順に条件を外して探します。'
-      + '外したときは「条件を一部緩和」と表示します。帯の構成は外しません。</p>';
-    h += '<h3 class="sub">5. 正直なところ</h3>';
+      + '外したときは「条件を一部緩和」と表示します。帯の構成と、十の位の区間の指定は外しません。</p>';
+    h += '<h3 class="sub">5. 十の位の区間に合わせる（指定したときだけ）</h3>';
+    h += '<p class="note">一桁台・10台・20台…の区間ごとに、本数字が何個入るかの幅を決められます。'
+      + '「過去にあった範囲」は対象期間で実際に出た最小〜最大の個数、「自分で決める」は選んだ幅です。'
+      + '選んだ組み合わせが幅に入らなければ選び直します。帯の中は等確率のままなので、'
+      + '区間の個数を絞ることが、その区間の数字の出る割合を調整することになります。</p>';
+    h += '<h3 class="sub">6. 正直なところ</h3>';
     h += '<p class="note">やっているのは「過去の当せん番号と似た<b>形</b>の組み合わせを作る」ことだけです。'
       + '抽せんは毎回独立した事象なので、<b>この操作で当せん確率は上がりません</b>（どの組み合わせも確率は同じです）。'
       + '買い方の手がかりとしてお使いください。購入は自己責任でお願いします。</p>';
@@ -1660,6 +1945,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + '・連続数字＝昇順に並べたとき差が1の並び。3連続は2連続2組とは別に数えます。<br>'
       + '・末尾同一＝1の位が同じ数字のまとまり。3個一致は2個一致とは別に数えます。<br>'
       + '・頻度帯＝対象期間の本数字の出現回数を、理論期待値 ± 標準偏差の半分で3つに分けたもの。<br>'
+      + '・十の位の区間＝一桁台（1〜9）・10台・20台・30台・40台。区間ごとに数字の個数が違うので、ランダムに選んだときの理論値と比べて見ます。<br>'
       + '・データはこの端末のブラウザ内（localStorage）にだけ保存されます。</p>';
     h += '<h3 class="sub">この集計でわかること・わからないこと</h3>';
     h += '<p class="note">わかるのは「過去の当せん番号にどんな傾向があったか」だけです。'
@@ -1667,6 +1953,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + 'どの組み合わせも当せん確率は同じです。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.70</td><td class="l">十の位ごとの区間（一桁台・10台・20台・30台・40台）の集計を追加しました。出現率タブで理論値との比、条件確率タブで1回あたりの個数の偏りを見られます。予想タブでは区間ごとの個数を「過去にあった範囲」か自分で決めた幅に合わせられます。</td></tr>';
     h += '<tr><td class="l">v1.60</td><td class="l">予想タブに、帯ごとの平均個数と出た範囲の表を追加しました。個数を自分で決めるときは「加熱2〜3個」のように幅を指定でき、合計が本数字の個数になる組み合わせから1口ごとに等確率で選びます。あわせて、選択欄で選んだ個数が文字列のまま扱われ、合計の判定に失敗していた不具合を直しました。</td></tr>';
     h += '<tr><td class="l">v1.53</td><td class="l">帯の組み合わせを、窓の長さと標本の数の両方がそろったときだけ対象回数どおりに数えるようにしました。そろわないときは窓を保有件数の半分にそろえ直します。対象12回なら保有24件、対象24回なら保有48件でそろいます。</td></tr>';
     h += '<tr><td class="l">v1.52</td><td class="l">頻度帯の組み合わせを数えるとき、帯の判定に対象回数ぶんの履歴がそろった回だけを使うようにしました。これまでは古い回ほど短い履歴で帯を決めており、短い窓では加熱帯の母数が膨らむぶん、実績が加熱帯寄りに出ていました。保有データが対象回数の2倍に足りないときは、取れるだけ短い窓に全部そろえて数え、その旨を表示します。</td></tr>';

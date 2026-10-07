@@ -664,6 +664,111 @@ few.click({ 'data-act': 'tab', 'data-t': 'cond' });
 has('履歴が足りないときは断り書きを出す', few.text(), '履歴が足りないため');
 has('加熱帯が多めに出ることを伝える', few.text(), '加熱帯が多めに出ます');
 
+console.log('十の位ごとの集計（利用者提供の実データ8回分で手計算と照合）');
+/*
+ * REAL8 の本数字を十の位で数えると、1回ごとの個数は次のとおり（手計算）。
+ *   一桁台 2,1,2,2,1,2,1,0 → 延べ11  10台 0,1,1,0,1,2,2,2 → 延べ9
+ *   20台   1,2,2,0,0,1,2,0 → 延べ8   30台 2,1,1,2,4,1,1,1 → 延べ13
+ *   40台   1,1,0,2,0,0,0,3 → 延べ7（合計48 ＝ 8回×6個）
+ * 理論値は超幾何分布。40台（4個）は 0個54%・1個38%・2個8%・3個以上1%、平均 6×4÷43＝0.56。
+ */
+var dz = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: REAL8, loto7: [] } } });
+dz.click({ 'data-act': 'tab', 'data-t': 'freq' });
+var dzF = dz.text();
+has('①一桁台: 延べ11・1回平均1.38・理論1.26', dzF, '一桁台|1〜9|9個|11|1.38|1.26|±0.33|109%');
+has('①20台: 延べ8・理論比72%', dzF, '20台|20〜29|10個|8|1.00|1.40|±0.34|72%');
+has('①40台: 4個しかない区間を理論比で見る（157%）', dzF, '40台|40〜43|4個|7|0.88|0.56|±0.24|157%');
+has('①区間ごとに数字の個数が違うことを断る', dzF, '一桁台は9個、40台は4個');
+
+dz.click({ 'data-act': 'tab', 'data-t': 'cond' });
+var dzC = dz.text();
+has('②一桁台: 0個13%（理論22%）・1個38%・2個50%', dzC, '一桁台|1〜9|13%|22%|38%|41%|50%|27%|0%|9%|1.38|1.26');
+has('②30台: 0個の回は無い・3個以上が1回', dzC, '30台|30〜39|0%|18%|63%|39%|25%|30%|13%|13%|1.63|1.40');
+has('②40台: 0個50%（理論54%）', dzC, '40台|40〜43|50%|54%|25%|38%|13%|8%|13%|1%|0.88|0.56');
+has('②偶然の差の目安を出す（8回なら18ポイント前後）', dzC, '偶然でも18ポイント前後の差はよく出ます');
+
+dz.click({ 'data-act': 'tab', 'data-t': 'pred' });
+var dzP = dz.text();
+has('③過去にあった範囲: 一桁台0〜2個', dzP, '一桁台|1〜9|1.38個|理論 1.26|0〜2個');
+has('③過去にあった範囲: 30台1〜4個', dzP, '30台|30〜39|1.63個|理論 1.40|1〜4個');
+
+function digitsOf(set, lo, hi) {
+  return set.split(' ').map(Number).filter(function (n) { return n >= lo && n <= hi; }).length;
+}
+var OFF = { useCarry: false, useConsec: false, useTail: false, useSum: false, useOdd: false };
+function predBoot(extra) {
+  var sv = { game: 'loto6', windowSize: 24, predictCount: 10, data: { loto6: REAL8, loto7: [] } };
+  var k;
+  for (k in OFF) { sv[k] = OFF[k]; }
+  for (k in extra) { sv[k] = extra[k]; }
+  var v = boot({ saved: sv });
+  v.click({ 'data-act': 'tab', 'data-t': 'pred' });
+  v.click({ 'data-act': 'gen' });
+  return v;
+}
+
+console.log('十の位ごとの個数を予想で指定する');
+var no40 = predBoot({ rangeMode: 'manual', dec4Min: 0, dec4Max: 0 });
+var no40Sets = setsOf(no40);
+check('40台を0個にすると10口できる', no40Sets.length, 10);
+check('40台の数字が1つも入らない', no40Sets.every(function (x) { return digitsOf(x, 40, 43) === 0; }), true);
+has('各口に区間の内訳を出す', no40.text(), '一桁台 ');
+
+var two1 = predBoot({ rangeMode: 'manual', dec0Min: 2, dec0Max: 2 });
+var two1Sets = setsOf(two1);
+check('一桁台を2個ちょうどにすると10口できる', two1Sets.length, 10);
+check('全口で一桁台がちょうど2個', two1Sets.every(function (x) { return digitsOf(x, 1, 9) === 2; }), true);
+
+var autoD = predBoot({ rangeMode: 'auto' });
+var autoSets = setsOf(autoD);
+check('過去にあった範囲でも10口できる', autoSets.length, 10);
+check('過去の範囲どおり: 一桁台は2個まで', autoSets.every(function (x) { return digitsOf(x, 1, 9) <= 2; }), true);
+check('過去の範囲どおり: 30台は1個以上', autoSets.every(function (x) { return digitsOf(x, 30, 39) >= 1; }), true);
+check('過去の範囲どおり: 10台・20台は2個まで',
+  autoSets.every(function (x) { return digitsOf(x, 10, 19) <= 2 && digitsOf(x, 20, 29) <= 2; }), true);
+
+var overLo = predBoot({ rangeMode: 'manual', dec0Min: 3, dec1Min: 3, dec2Min: 1 });
+has('下限の合計が多すぎると理由を出す', overLo.text(), '下限の合計が7個で、本数字の個数（6個）を超えています');
+var loHi = predBoot({ rangeMode: 'manual', dec2Min: 3, dec2Max: 1 });
+has('下限が上限を超えると理由を出す', loHi.text(), '20台は下限（3個）が上限（1個）を超えています');
+var under = predBoot({ rangeMode: 'manual', dec0Max: 1, dec1Max: 1, dec2Max: 1, dec3Max: 1, dec4Max: 1 });
+has('上限の合計が足りないと理由を出す', under.text(), '上限の合計が5個で、本数字の個数（6個）に届きません');
+
+/* いまの加熱帯（2回以上出た13個）にある20台は 26 だけなので、加熱6個・20台3個以上は作れない */
+var clash = predBoot({ bandMode: 'manual', bandHotMin: 6, bandHotMax: 6, bandMidMin: 0, bandMidMax: 0,
+  bandColdMin: 0, bandColdMax: 0, rangeMode: 'manual', dec2Min: 3 });
+has('帯の指定と両立しないときは理由を出す', clash.text(), '十の位の区間の指定と、頻度帯の個数などの条件を同時に満たす組み合わせが見つかりませんでした');
+
+/* 「自分で決める」なら下限の合計が12個で失敗する設定でも、「指定しない」なら使わないので10口できる */
+var offD = predBoot({ rangeMode: 'off', dec0Min: 6, dec1Min: 6 });
+check('指定しないときは幅の設定があっても使わない', setsOf(offD).length, 10);
+check('指定しないときはエラーを出さない', offD.text().indexOf('下限の合計') < 0, true);
+
+var keepD = predBoot({ rangeMode: 'manual', dec4Min: 0, dec4Max: 0 });
+keepD.click({ 'data-act': 'regen', 'data-i': '3' });
+check('作り直しても区間の指定を守る', setsOf(keepD).every(function (x) { return digitsOf(x, 40, 43) === 0; }), true);
+
+var sel = boot({ saved: { game: 'loto6', windowSize: 24, rangeMode: 'manual', data: { loto6: REAL8, loto7: [] } } });
+sel.click({ 'data-act': 'tab', 'data-t': 'pred' });
+sel.set('dec1Max', '2', 'select-one');
+check('選択欄の値は数として保存する', JSON.parse(sel.store['lotoStatsApp.v1']).dec1Max, 2);
+check('40台は4個までしか選べない',
+  (sel.html().match(/<select data-set="dec4Max">[\s\S]*?<\/select>/) || [''])[0].split('<option').length - 1, 5);
+
+console.log('ロト7の区間（30台まで）');
+/* 第695回〜第692回のロト7当せん番号（利用者が画面から取り込んだもの） */
+var REAL7 = [
+  { no: 695, date: '2026-09-18', main: [5, 6, 11, 16, 22, 24, 34], bonus: [15, 18] },
+  { no: 694, date: '2026-09-11', main: [3, 13, 24, 26, 30, 31, 36], bonus: [23, 34] },
+  { no: 693, date: '2026-09-04', main: [16, 17, 22, 23, 25, 33, 35], bonus: [13, 31] },
+  { no: 692, date: '2026-08-28', main: [7, 9, 15, 18, 20, 28, 31], bonus: [21, 34] }
+];
+var l7 = boot({ saved: { game: 'loto7', windowSize: 24, data: { loto6: [], loto7: REAL7 } } });
+l7.click({ 'data-act': 'tab', 'data-t': 'freq' });
+var l7F = l7.text();
+has('ロト7の30台は30〜37の8個、延べ7', l7F, '30台|30〜37|8個|7|');
+check('ロト7に40台は無い', l7F.indexOf('40台') < 0, true);
+
 console.log('表現の見直し');
 var wording = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: REAL8, loto7: [] } } });
 wording.click({ 'data-act': 'tab', 'data-t': 'info' });
