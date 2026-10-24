@@ -799,14 +799,54 @@ var full36 = boot({ saved: { game: 'loto7', windowSize: 36, data: { loto6: [], l
 has('ロト7の36回分もOK', full36.text(), '第305回 〜 第340回（36回分） は回号が抜けなく揃っています');
 
 var short24 = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: fakeRun(noRange(201, 220)), loto7: [] } } });
-has('連続でも対象回数に足りなければ伝える', short24.text(), '集計対象24回に対して、保有は20回分です');
+has('連続でも対象回数に足りなければ伝える', short24.text(), '集計対象24回に対して、保有は20回分しかありません（第201回 〜 第220回（20回分））。第201回より前の回を取り込むと揃います');
 check('足りないときはOKを出さない', short24.text().indexOf('✓ OK') < 0, true);
 
 /* 集計対象の24回は連続、それより古い所に抜けがある */
 var oldGap = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: fakeRun(noRange(201, 224).concat([198])), loto7: [] } } });
 var ogText = oldGap.text();
 has('集計対象が揃っていればOK', ogText, '✓ OK');
-has('保有データ全体の抜けは別に伝える', ogText, '保有データ全体では回号が飛んでいます。第199〜200回が見つかりません（2回分）');
+has('保有データ全体の抜けは別に伝える', ogText, '集計対象より前の回で回号が飛んでいます。|第199〜200回が見つかりません（2回分）');
+
+/* 抜けと件数不足が重なったときは両方伝える */
+has('抜けと件数不足を両方伝える: 抜け', gap1.text(), '第101回が見つかりません');
+has('抜けと件数不足を両方伝える: 件数', gap1.text(), '集計対象24回に対して、保有は2回分しかありません');
+
+/* 引っ張りは集計対象の最も古い回を、その1つ前の回と比べる */
+var carryGap = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: fakeRun(noRange(202, 225).concat([200])), loto7: [] } } });
+carryGap.click({ 'data-act': 'tab', 'data-t': 'freq' });
+has('出現率タブは集計対象だけを見るのでOK', carryGap.text(), '✓ OK');
+carryGap.click({ 'data-act': 'tab', 'data-t': 'cond' });
+var cgText = carryGap.text();
+has('条件確率タブは1つ前の回の抜けも警告する', cgText, '集計対象の1つ前の回が飛んでいます。|第201回が見つかりません');
+has('1つ前の回を使う理由を出す', cgText, '最も古い第202回の引っ張りを、第201回ではなく第200回と比べています');
+check('条件確率タブではOKを出さない', cgText.indexOf('✓ OK') < 0, true);
+
+/* 帯の組み合わせは各回より前の24回で帯を決めるので、保有48件をすべて使う */
+var band48 = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: fakeRun(noRange(177, 224)), loto7: [] } } });
+band48.click({ 'data-act': 'tab', 'data-t': 'pred' });
+has('さかのぼって使う回まで揃えばOK', band48.text(), '✓ OK：集計対象 第201回 〜 第224回（24回分） は回号が抜けなく揃っています。');
+has('さかのぼる範囲を示す', band48.text(), 'さかのぼって使う第177回までも連続しています');
+
+var band48gap = boot({ saved: { game: 'loto6', windowSize: 24, data: {
+  loto6: fakeRun(noRange(176, 224).filter(function (n) { return n !== 190; })), loto7: [] } } });
+band48gap.click({ 'data-act': 'tab', 'data-t': 'freq' });
+has('出現率タブは古い所の抜けに関係しない', band48gap.text(), '✓ OK');
+band48gap.click({ 'data-act': 'tab', 'data-t': 'pred' });
+var bgText = band48gap.text();
+has('予想タブは帯の判定に使う回の抜けを警告する', bgText, '第190回が見つかりません（1回分）');
+check('予想タブではOKを出さない', bgText.indexOf('✓ OK') < 0, true);
+
+var dupNo = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: fakeRun([103, 102, 102, 101]), loto7: [] } } });
+has('同じ回号が2件あれば伝える', dupNo.text(), '同じ回号が2件あります（第102回）');
+check('同じ回号があるときはOKを出さない', dupNo.text().indexOf('✓ OK') < 0, true);
+
+var noNo = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: [
+  { no: 101, date: null, main: [1, 2, 3, 4, 5, 6], bonus: [7] },
+  { no: null, date: '2026-01-01', main: [8, 9, 10, 11, 12, 13], bonus: [14] }
+], loto7: [] } } });
+has('回号の無いデータがあれば確かめられないと伝える', noNo.text(), '回号の無いデータが1件あるため');
+check('回号の無いデータがあるときはOKを出さない', noNo.text().indexOf('✓ OK') < 0, true);
 
 var gapImp = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
 gapImp.setPaste([
