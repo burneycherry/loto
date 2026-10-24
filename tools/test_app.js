@@ -769,6 +769,53 @@ var l7F = l7.text();
 has('ロト7の30台は30〜37の8個、延べ7', l7F, '30台|30〜37|8個|7|');
 check('ロト7に40台は無い', l7F.indexOf('40台') < 0, true);
 
+console.log('回号の抜けの警告');
+/* 回号の判定を確かめるための作り物の並び。当せん番号ではない */
+function fakeRun(nos) {
+  return nos.map(function (n) {
+    return { no: n, date: null, main: [1 + n % 7, 10 + n % 9, 20 + n % 5, 27 + n % 4, 33 + n % 3, 38 + n % 5], bonus: [9] };
+  });
+}
+function noRange(a, b) {
+  var out = [];
+  for (var n = b; n >= a; n = n - 1) { out.push(n); }
+  return out;
+}
+var gap1 = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: fakeRun([102, 100]), loto7: [] } } });
+has('100回と102回なら101回が無いと警告する', gap1.text(), '第101回が見つかりません');
+gap1.click({ 'data-act': 'tab', 'data-t': 'freq' });
+has('出現率タブにも警告を出す', gap1.text(), '第101回が見つかりません');
+check('抜けがあるときはOKを出さない', gap1.text().indexOf('✓ OK') < 0, true);
+
+var gap2 = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: fakeRun([110, 106, 105, 101]), loto7: [] } } });
+has('続いた抜けは範囲でまとめる', gap2.text(), '第102〜104回、第107〜109回が見つかりません（6回分）');
+
+var full24 = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: fakeRun(noRange(201, 224)), loto7: [] } } });
+has('24回分が連続して揃えばOK', full24.text(), '✓ OK：集計対象 第201回 〜 第224回（24回分） は回号が抜けなく揃っています');
+full24.click({ 'data-act': 'tab', 'data-t': 'pred' });
+has('予想タブにもOKを出す', full24.text(), '✓ OK');
+
+var full36 = boot({ saved: { game: 'loto7', windowSize: 36, data: { loto6: [], loto7: fakeRun(noRange(301, 340)) } } });
+has('ロト7の36回分もOK', full36.text(), '第305回 〜 第340回（36回分） は回号が抜けなく揃っています');
+
+var short24 = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: fakeRun(noRange(201, 220)), loto7: [] } } });
+has('連続でも対象回数に足りなければ伝える', short24.text(), '集計対象24回に対して、保有は20回分です');
+check('足りないときはOKを出さない', short24.text().indexOf('✓ OK') < 0, true);
+
+/* 集計対象の24回は連続、それより古い所に抜けがある */
+var oldGap = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: fakeRun(noRange(201, 224).concat([198])), loto7: [] } } });
+var ogText = oldGap.text();
+has('集計対象が揃っていればOK', ogText, '✓ OK');
+has('保有データ全体の抜けは別に伝える', ogText, '保有データ全体では回号が飛んでいます。第199〜200回が見つかりません（2回分）');
+
+var gapImp = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+gapImp.setPaste([
+  '第2139回 2026/9/21 03 06 23 34 36 43 29 1 4億5,134万円 0円',
+  '第2137回 2026/9/14 04 08 10 25 28 33 09 2 3億7,014万円 0円'
+].join('\n'));
+gapImp.click({ 'data-act': 'import' });
+check('取り込んだときにも抜けを伝える', /回号が飛んでいます: 第2138回が見つかりません/.test(gapImp.calls.join(' ')), true);
+
 console.log('表現の見直し');
 var wording = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: REAL8, loto7: [] } } });
 wording.click({ 'data-act': 'tab', 'data-t': 'info' });

@@ -95,6 +95,15 @@ p.note { margin: 6px 0 0; font-size: 12px; color: #5b6774; }
   font-size: 13px;
   margin-bottom: 12px;
 }
+.okbox {
+  background: #ecfdf3;
+  border: 1px solid #9fdcb6;
+  color: #14532d;
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
 .empty { text-align: center; color: #5b6774; padding: 18px 6px; font-size: 14px; }
 button.btn {
   appearance: none;
@@ -261,6 +270,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
   p.note, .muted, .kpi span { color: #93a2b8; }
   .empty { color: #93a2b8; }
   .warn { background: #33270d; border-color: #6b551f; color: #f4d99b; }
+  .okbox { background: #0f2a1b; border-color: #23573a; color: #a7f3c4; }
   textarea, input[type="text"], input[type="number"], select {
     background: #0f141d;
     color: #e4e9f0;
@@ -301,7 +311,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.70';
+  var APP_VERSION = '1.80';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -644,6 +654,8 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var msg = r.draws.length + '件読込 ／ ' + added + '件新規追加';
     if (dup > 0) { msg += ' ／ ' + dup + '件取込済（重複）'; }
     msg += '\n保有 ' + merged.length + '件';
+    var gp = noGaps(merged);
+    if (gp.count > 0) { msg += '\n⚠ 回号が飛んでいます: ' + gapLabel(gp.ranges) + 'が見つかりません'; }
     if (r.errors.length) { msg += '\n読み飛ばし ' + r.errors.length + '行:\n' + r.errors.slice(0, 5).join('\n'); }
     alert(msg);
   }
@@ -923,6 +935,64 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     return '';
   }
 
+  /* 回号の抜けを調べる。抜けは [始め, 終わり] の区間で返す */
+  function noGaps(list) {
+    var nos = [];
+    var noless = 0;
+    for (var i = 0; i < list.length; i++) {
+      if (typeof list[i].no === 'number' && isFinite(list[i].no)) { nos.push(list[i].no); } else { noless += 1; }
+    }
+    nos.sort(asc);
+    var ranges = [];
+    var count = 0;
+    for (var j = 1; j < nos.length; j++) {
+      if (nos[j] - nos[j - 1] > 1) {
+        ranges.push([nos[j - 1] + 1, nos[j] - 1]);
+        count += nos[j] - nos[j - 1] - 1;
+      }
+    }
+    return { ranges: ranges, count: count, noless: noless };
+  }
+
+  function gapLabel(ranges) {
+    var max = 8;
+    var parts = [];
+    for (var i = 0; i < ranges.length && i < max; i++) {
+      var r = ranges[i];
+      parts.push(r[0] === r[1] ? '第' + r[0] + '回' : '第' + r[0] + '〜' + r[1] + '回');
+    }
+    var txt = parts.join('、');
+    if (ranges.length > max) { txt += ' ほか' + (ranges.length - max) + 'か所'; }
+    return txt;
+  }
+
+  /* 集計対象の回号が抜けなく揃っているかを伝える。withAll なら保有データ全体の抜けも添える */
+  function gapBanner(withAll) {
+    var win = windowDraws();
+    if (win.length === 0) { return ''; }
+    var h = '';
+    var r = noGaps(win);
+    var span = rangeLabel();
+    if (r.noless > 0) {
+      h += '<div class="warn">⚠ 集計対象に回号の無いデータが' + r.noless + '件あるため、回が抜けていないか確かめられません。</div>';
+    } else if (r.count > 0) {
+      h += '<div class="warn">⚠ <b>回号が飛んでいます。</b>' + gapLabel(r.ranges) + 'が見つかりません（' + r.count + '回分）。'
+        + '集計対象 ' + span + ' はこの回を抜いたまま集計しています。抜けている回を取り込んでください。</div>';
+    } else if (state.windowSize > 0 && win.length < state.windowSize) {
+      h += '<div class="warn">⚠ 集計対象' + state.windowSize + '回に対して、保有は' + win.length + '回分です（' + span + '、回号は連続）。'
+        + '第' + win[win.length - 1].no + '回より前の回を取り込むと揃います。</div>';
+    } else {
+      h += '<div class="okbox">✓ OK：集計対象 ' + span + ' は回号が抜けなく揃っています。</div>';
+    }
+    if (withAll) {
+      var all = noGaps(draws());
+      if (all.count > r.count) {
+        h += '<div class="warn">⚠ 保有データ全体では回号が飛んでいます。' + gapLabel(all.ranges) + 'が見つかりません（' + all.count + '回分）。</div>';
+      }
+    }
+    return h;
+  }
+
   function viewData() {
     var game = g();
     var all = draws();
@@ -948,6 +1018,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     h += '<div class="card">';
     h += '<h2 class="sec">保有データ（' + all.length + '件）</h2>';
     h += '<div class="inline"><span class="muted" style="font-size:12px">集計対象</span>' + winSelect('winSelData') + '</div>';
+    h += '<div style="margin-top:8px">' + gapBanner(true) + '</div>';
     if (all.length === 0) {
       h += '<div class="empty">データがありません。<br>上の貼り付けエリアから取り込んでください。</div>';
     } else {
@@ -977,7 +1048,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
   function viewFreq() {
     var game = g();
     var win = windowDraws();
-    var h = demoBanner();
+    var h = demoBanner() + gapBanner(false);
     h += '<div class="card">';
     h += '<h2 class="sec">① 各数字の出現回数・出現率</h2>';
     h += '<div class="inline">' + winSelect('winSelFreq');
@@ -1095,7 +1166,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
   function viewCond() {
     var game = g();
     var win = windowDraws();
-    var h = demoBanner();
+    var h = demoBanner() + gapBanner(false);
     h += '<div class="card">';
     h += '<h2 class="sec">② 条件別の出現確率</h2>';
     h += '<div class="inline">' + winSelect('winSelCond') + '</div>';
@@ -1748,7 +1819,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
   function viewPred() {
     var game = g();
     var win = windowDraws();
-    var h = demoBanner();
+    var h = demoBanner() + gapBanner(false);
     h += '<div class="card">';
     h += '<h2 class="sec">◎ 頻度帯による予想（' + game.label + '）</h2>';
     if (win.length < 2) {
@@ -1953,6 +2024,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + 'どの組み合わせも当せん確率は同じです。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.80</td><td class="l">回号の抜けを確かめるようにしました。集計対象の中で回が飛んでいると（第100回と第102回があって第101回が無いなど）警告し、選んだ回数分が連続して揃っていれば「OK」と表示します。取り込んだときにも抜けを伝えます。</td></tr>';
     h += '<tr><td class="l">v1.70</td><td class="l">十の位ごとの区間（一桁台・10台・20台・30台・40台）の集計を追加しました。出現率タブで理論値との比、条件確率タブで1回あたりの個数の偏りを見られます。予想タブでは区間ごとの個数を「過去にあった範囲」か自分で決めた幅に合わせられます。</td></tr>';
     h += '<tr><td class="l">v1.60</td><td class="l">予想タブに、帯ごとの平均個数と出た範囲の表を追加しました。個数を自分で決めるときは「加熱2〜3個」のように幅を指定でき、合計が本数字の個数になる組み合わせから1口ごとに等確率で選びます。あわせて、選択欄で選んだ個数が文字列のまま扱われ、合計の判定に失敗していた不具合を直しました。</td></tr>';
     h += '<tr><td class="l">v1.53</td><td class="l">帯の組み合わせを、窓の長さと標本の数の両方がそろったときだけ対象回数どおりに数えるようにしました。そろわないときは窓を保有件数の半分にそろえ直します。対象12回なら保有24件、対象24回なら保有48件でそろいます。</td></tr>';
