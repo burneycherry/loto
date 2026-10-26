@@ -122,6 +122,32 @@ button.btn.sub { background: #ffffff; color: #2563eb; }
 button.btn.gray { background: #ffffff; color: #475569; border-color: #cbd5e1; }
 button.btn.danger { background: #ffffff; color: #b91c1c; border-color: #e7b3b3; }
 button.btn.wide { width: 100%; margin-right: 0; }
+label.filebtn {
+  display: inline-block;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid #2563eb;
+  background: #ffffff;
+  color: #2563eb;
+  padding: 10px 14px;
+  margin: 4px 6px 4px 0;
+  min-height: 42px;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+}
+label.filebtn input {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
 button.mini {
   appearance: none;
   font-family: inherit;
@@ -278,6 +304,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
   }
   label.fld { color: #9fb0c7; }
   button.btn.sub { background: #101722; color: #7fb0ff; border-color: #2c4a7a; }
+  label.filebtn { background: #101722; color: #7fb0ff; border-color: #2c4a7a; }
   button.btn.gray { background: #101722; color: #a8b6c9; border-color: #2c3746; }
   button.btn.danger { background: #101722; color: #f28b8b; border-color: #6b2b2b; }
   button.mini { background: #101722; color: #a8b6c9; border-color: #2c3746; }
@@ -311,7 +338,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.81';
+  var APP_VERSION = '1.90';
   var STORE_KEY = 'lotoStatsApp.v1';
 
   var GAMES = {
@@ -622,17 +649,179 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     return { draws: out, errors: errs };
   }
 
+  /*
+   * このアプリが書き出したJSON・CSVを読みます。
+   * JSON は [{ no, date, main, bonus }, …]、CSV は「no,date,ロト6_main,bonus」の見出しで始まる形です。
+   * どちらでもなければ null を返し、ふつうの貼り付けとして読みます。
+   */
+  function exportKind(text) {
+    var t = String(text).replace(/^﻿/, '').replace(/^\s+/, '');
+    if (t.charAt(0) === '[' || t.charAt(0) === '{') { return 'json'; }
+    if (/^"?no"?\s*,\s*"?date"?\s*,/i.test(t)) { return 'csv'; }
+    return null;
+  }
+
+  function otherGameOf(game) {
+    return game.key === 'loto6' ? GAMES.loto7 : GAMES.loto6;
+  }
+
+  /* 1回分を確かめて整えます。読めないときは理由の文字列を返します */
+  function checkExportRow(no, date, main, bonus, game) {
+    if (main.length !== game.main || bonus.length !== game.bonus) {
+      var o = otherGameOf(game);
+      if (main.length === o.main && bonus.length === o.bonus) { return o.label + 'のデータです'; }
+      return '本数字' + game.main + '個・ボーナス' + game.bonus + '個ではありません';
+    }
+    var seen = {};
+    var joined = main.concat(bonus);
+    for (var i = 0; i < joined.length; i++) {
+      var v = joined[i];
+      if (!(v >= 1 && v <= game.max) || Math.floor(v) !== v || seen[v]) {
+        return '1〜' + game.max + 'の重複なしの数字として読めません（' + joined.join(',') + '）';
+      }
+      seen[v] = 1;
+    }
+    if (no !== null && !(no >= 1 && no <= 99999 && Math.floor(no) === no)) { return '回号が読めません'; }
+    var dt = null;
+    if (date !== null && date !== '') {
+      var m = String(date).match(/^\s*(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*日?\s*$/);
+      if (!m) { return '日付が読めません（' + date + '）'; }
+      dt = m[1] + '-' + pad2(Number(m[2])) + '-' + pad2(Number(m[3]));
+    }
+    return { no: no, date: dt, main: main.slice().sort(asc), bonus: bonus.slice().sort(asc) };
+  }
+
+  function numList(v) {
+    if (Array.isArray(v)) {
+      var out = [];
+      for (var i = 0; i < v.length; i++) {
+        var n = typeof v[i] === 'number' ? v[i] : (/^\s*\d+\s*$/.test(String(v[i])) ? Number(v[i]) : NaN);
+        out.push(n);
+      }
+      return out;
+    }
+    var m = zen2han(String(v === null || typeof v === 'undefined' ? '' : v)).match(/\d+/g);
+    return m ? m.map(Number) : [];
+  }
+
+  function parseExportJson(text, game) {
+    var out = [];
+    var errs = [];
+    var o;
+    try { o = JSON.parse(String(text).replace(/^﻿/, '')); }
+    catch (e) { return { draws: [], errors: ['JSONとして読めません'] }; }
+    var list = Array.isArray(o) ? o : null;
+    if (!list && o && typeof o === 'object') {
+      if (o.data && Array.isArray(o.data[game.key])) { list = o.data[game.key]; }
+      else if (Array.isArray(o.draws)) { list = o.draws; }
+    }
+    if (!list) { return { draws: [], errors: ['当せん番号の並びが見つかりません'] }; }
+    for (var i = 0; i < list.length; i++) {
+      var d = list[i];
+      if (!d || typeof d !== 'object') { errs.push((i + 1) + '件目: 読めません'); continue; }
+      var no = (d.no === null || typeof d.no === 'undefined' || d.no === '') ? null : Number(d.no);
+      var r = checkExportRow(no, (typeof d.date === 'string') ? d.date : null, numList(d.main), numList(d.bonus), game);
+      if (typeof r === 'string') { errs.push((i + 1) + '件目: ' + r); continue; }
+      if (d.demo === true) { r.demo = true; }
+      out.push(r);
+    }
+    return { draws: out, errors: errs };
+  }
+
+  function csvFields(line) {
+    var out = [];
+    var cur = '';
+    var q = false;
+    for (var i = 0; i < line.length; i++) {
+      var c = line.charAt(i);
+      if (q) {
+        if (c === '"') {
+          if (line.charAt(i + 1) === '"') { cur += '"'; i = i + 1; }
+          else { q = false; }
+        } else { cur += c; }
+      } else if (c === '"') { q = true; }
+      else if (c === ',') { out.push(cur); cur = ''; }
+      else { cur += c; }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function parseExportCsv(text, game) {
+    var lines = String(text).replace(/^﻿/, '').split(/\r\n|\r|\n/);
+    var out = [];
+    var errs = [];
+    var head = -1;
+    for (var i = 0; i < lines.length; i++) {
+      if (/\S/.test(lines[i])) { head = i; break; }
+    }
+    var o = otherGameOf(game);
+    if (head >= 0 && lines[head].indexOf(o.label) >= 0) {
+      return { draws: [], errors: [o.label + 'のCSVです'], otherGame: o };
+    }
+    for (i = head + 1; i < lines.length; i++) {
+      if (!/\S/.test(lines[i])) { continue; }
+      var f = csvFields(lines[i]);
+      if (f.length < 4) { errs.push((i + 1) + '行目: 項目が' + f.length + '個しかありません（4個必要）'); continue; }
+      var noTxt = zen2han(f[0]).replace(/\s+/g, '');
+      var no = noTxt === '' ? null : (/^\d+$/.test(noTxt) ? Number(noTxt) : NaN);
+      var r = checkExportRow(no, zen2han(f[1]).replace(/^\s+|\s+$/g, ''), numList(f[2]), numList(f[3]), game);
+      if (typeof r === 'string') { errs.push((i + 1) + '行目: ' + r); continue; }
+      out.push(r);
+    }
+    return { draws: out, errors: errs };
+  }
+
+  function parseExport(text, game) {
+    var kind = exportKind(text);
+    if (kind === 'json') { return parseExportJson(text, game); }
+    if (kind === 'csv') { return parseExportCsv(text, game); }
+    return null;
+  }
+
   function importText() {
     var game = g();
+    var ex = parseExport(pasteText, game);
+    if (ex) {
+      importDraws(ex, true);
+      return;
+    }
     var r = parseDraws(pasteText, game);
     var blocks = parseBlocks(pasteText, game);
-    var usedBlocks = false;
     if (blocks.length > r.draws.length) {
       r = { draws: blocks, errors: [] };
-      usedBlocks = true;
     }
+    importDraws(r, false);
+  }
+
+  /* 書き出したファイルを選んだとき。中身は貼り付けと同じ流れで読みます */
+  function importFile(file) {
+    if (!file) { return; }
+    if (typeof FileReader === 'undefined') { alert('この端末ではファイルを読めません。'); return; }
+    var game = g();
+    var reader = new FileReader();
+    reader.onload = function () {
+      var text = String(reader.result || '');
+      var ex = parseExport(text, game);
+      if (!ex) {
+        alert('このアプリで書き出したJSON・CSVではありません。\n当せん番号の一覧ページは、コピーして貼り付けエリアから取り込んでください。');
+        return;
+      }
+      importDraws(ex, true);
+    };
+    reader.onerror = function () { alert('ファイルを読めませんでした。'); };
+    reader.readAsText(file);
+  }
+
+  /* exported が true のときは、書き出したときの並び（新しい回が上）をそのまま使います */
+  function importDraws(r, exported) {
+    var game = g();
     if (r.draws.length === 0) {
-      alert('読み取れた回がありません。\n' + (r.errors.slice(0, 5).join('\n') || '形式を確認してください。'));
+      var why = r.errors.slice(0, 5).join('\n') || '形式を確認してください。';
+      if (r.otherGame || /のデータです$/.test(r.errors[0] || '')) {
+        why += '\n上の切り替えで' + otherGameOf(game).label + 'を選んでから取り込んでください。';
+      }
+      alert('読み取れた回がありません。\n' + why);
       return;
     }
     var list = r.draws;
@@ -641,13 +830,13 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       if (typeof list[i].no !== 'number') { hasNo = false; }
     }
     if (!hasNo) {
-      if (state.pasteOrder === 'old') { list.reverse(); }
+      if (!exported && state.pasteOrder === 'old') { list.reverse(); }
     } else {
       list.sort(function (a, b) { return b.no - a.no; });
     }
     var added = mergeInto(game.key, list);
     var merged = state.data[game.key];
-    pasteText = '';
+    if (!exported) { pasteText = ''; }
     save();
     render();
     var dup = r.draws.length - added;
@@ -1078,6 +1267,9 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     h += '<div style="margin-top:10px">';
     h += '<button class="btn wide" data-act="import">取り込む</button>';
     h += '</div>';
+    h += '<label class="fld">書き出したファイルから</label>';
+    h += '<label class="filebtn">JSON・CSVファイルを選ぶ<input type="file" id="fileIn"></label>';
+    h += '<p class="note">下の「JSON書き出し」「CSV書き出し」で保存したファイルを、そのまま取り込めます（' + game.label + 'のファイルを選んでください）。中身を貼り付けエリアに貼っても読めます。</p>';
     h += '<p class="note">回号ごとに当せん番号は決まっているので、取り込みは常に追加です。すでにある回は重複しません。入れ直したいときは下の「全消去」をしてから取り込んでください。</p>';
     h += '</div>';
 
@@ -2090,6 +2282,7 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
       + 'どの組み合わせも当せん確率は同じです。</p>';
     h += '<h3 class="sub">バージョン履歴</h3>';
     h += '<table class="tb"><thead><tr><th class="l">版</th><th class="l">内容</th></tr></thead><tbody>';
+    h += '<tr><td class="l">v1.90</td><td class="l">「JSON書き出し」「CSV書き出し」で保存したファイルを取り込めるようにしました。データタブの「JSON・CSVファイルを選ぶ」から選ぶか、中身を貼り付けエリアに貼って「取り込む」。取り込みはこれまでどおり追加のみで、ロト6とロト7のファイルを取り違えたときは取り込まずに伝えます。</td></tr>';
     h += '<tr><td class="l">v1.81</td><td class="l">回号の抜けの判定を見直しました。条件確率タブと予想タブは、引っ張りの比較や頻度帯の判定に集計対象より前の回も使うため、その範囲まで抜けを確かめます。抜けと件数不足が重なったときは両方を伝え、同じ回号が2件あるときも警告します。</td></tr>';
     h += '<tr><td class="l">v1.80</td><td class="l">回号の抜けを確かめるようにしました。集計対象の中で回が飛んでいると（第100回と第102回があって第101回が無いなど）警告し、選んだ回数分が連続して揃っていれば「OK」と表示します。取り込んだときにも抜けを伝えます。</td></tr>';
     h += '<tr><td class="l">v1.70</td><td class="l">十の位ごとの区間（一桁台・10台・20台・30台・40台）の集計を追加しました。出現率タブで理論値との比、条件確率タブで1回あたりの個数の偏りを見られます。予想タブでは区間ごとの個数を「過去にあった範囲」か自分で決めた幅に合わせられます。</td></tr>';
@@ -2138,6 +2331,14 @@ code.sm { background: #f1f5f9; border-radius: 5px; padding: 1px 5px; font-size: 
     var pt = $('paste');
     if (pt) {
       pt.addEventListener('input', function () { pasteText = pt.value; });
+    }
+    var fi = $('fileIn');
+    if (fi) {
+      fi.addEventListener('change', function () {
+        var f = fi.files && fi.files[0];
+        importFile(f);
+        try { fi.value = ''; } catch (e) { /* 同じファイルを選び直せるように空にする */ }
+      });
     }
   }
 

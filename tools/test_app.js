@@ -49,6 +49,7 @@ function boot(opts) {
   var handlers = {};
   var calls = [];
   var inputHooks = {};
+  var downloads = [];
 
   var doc = {
     addEventListener: function (t, f) { handlers[t] = f; },
@@ -89,9 +90,16 @@ function boot(opts) {
     });
   }
 
+  /* ファイルの中身は文字列で渡し、読み終わりをすぐ呼ぶ */
+  function FakeReader() { }
+  FakeReader.prototype.readAsText = function (file) {
+    this.result = file.text;
+    this.onload();
+  };
+
   var runner = new Function(
     'window', 'document', 'localStorage', 'navigator', 'location',
-    'alert', 'confirm', 'fetch', 'Blob', 'URL',
+    'alert', 'confirm', 'fetch', 'Blob', 'URL', 'FileReader',
     source
   );
   runner(
@@ -103,8 +111,9 @@ function boot(opts) {
     function (m) { calls.push('[alert] ' + m); },
     function () { return true; },
     fakeFetch,
-    function () { },
-    { createObjectURL: function () { return ''; }, revokeObjectURL: function () { } }
+    function (parts) { downloads.push(parts.join('')); },
+    { createObjectURL: function () { return ''; }, revokeObjectURL: function () { } },
+    FakeReader
   );
 
   return {
@@ -119,6 +128,12 @@ function boot(opts) {
       els.paste.value = v;
       if (inputHooks.paste) { inputHooks.paste(); }
     },
+    pickFile: function (text) {
+      var el = els.fileIn;
+      el.files = [{ text: text }];
+      if (inputHooks.fileIn) { inputHooks.fileIn(); }
+    },
+    downloads: downloads,
     click: function (attrs) {
       handlers.click({
         target: {
@@ -319,6 +334,77 @@ addOnly.click({ 'data-act': 'import' });
 has('同じ回は重複しない', addOnly.text(), '保有データ（3件）');
 check('重複の件数も伝える',
   /3件読込 ／ 1件新規追加 ／ 2件取込済（重複）/.test(addOnly.calls.join(' ')), true);
+
+console.log('書き出したJSON・CSVの取り込み');
+/* 以下の並びは取り込みの動作を確かめるための作り物で、実際の当せん番号ではない */
+var EXP6 = [
+  { no: 205, date: '2026-03-05', main: [3, 11, 19, 24, 35, 41], bonus: [7] },
+  { no: 204, date: '2026-03-02', main: [1, 8, 15, 22, 30, 43], bonus: [12] },
+  { no: 203, date: null, main: [2, 9, 16, 27, 33, 40], bonus: [21] }
+];
+var src6 = boot({ saved: { game: 'loto6', data: { loto6: EXP6, loto7: [] } } });
+src6.click({ 'data-act': 'export-json' });
+src6.click({ 'data-act': 'export-csv' });
+var json6 = src6.downloads[0];
+var csv6 = src6.downloads[1];
+check('JSONとCSVを書き出せる', typeof json6 === 'string' && typeof csv6 === 'string', true);
+
+function rowsOf(app) { return JSON.parse(app.store['lotoStatsApp.v1']).data; }
+
+var jIn = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+has('ファイルを選ぶ欄がある', jIn.html(), 'type="file" id="fileIn"');
+jIn.pickFile(json6);
+check('書き出したJSONをファイルから取り込むと元と同じ', rowsOf(jIn).loto6, EXP6);
+check('JSONの件数を伝える', /3件読込 ／ 3件新規追加/.test(jIn.calls.join(' ')), true);
+jIn.pickFile(json6);
+check('同じJSONを入れ直しても重複しない', rowsOf(jIn).loto6.length, 3);
+check('重複として伝える', /3件読込 ／ 0件新規追加 ／ 3件取込済（重複）/.test(jIn.calls.join(' ')), true);
+
+var cIn = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+cIn.pickFile(csv6);
+check('書き出したCSVをファイルから取り込むと元と同じ', rowsOf(cIn).loto6, EXP6);
+
+var pIn = boot({ saved: { game: 'loto6', pasteOrder: 'old', data: { loto6: [], loto7: [] } } });
+pIn.setPaste(json6);
+pIn.click({ 'data-act': 'import' });
+check('JSONの中身を貼り付けても取り込める', rowsOf(pIn).loto6, EXP6);
+var pcIn = boot({ saved: { game: 'loto6', pasteOrder: 'old', data: { loto6: [], loto7: [] } } });
+pcIn.setPaste(csv6);
+pcIn.click({ 'data-act': 'import' });
+check('CSVの中身を貼り付けても取り込める', rowsOf(pcIn).loto6, EXP6);
+check('CSVの見出し行を読み飛ばしとして数えない', /読み飛ばし/.test(pcIn.calls.join(' ')), false);
+
+var xls = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+xls.pickFile('\uFEFFno,date,ロト6_main,bonus\r\n205,2026/3/5,03 11 19 24 35 41,07\r\n');
+check('BOM付き・引用符なし・スラッシュの日付のCSVも読む', rowsOf(xls).loto6, [EXP6[0]]);
+
+var EXP7 = [{ no: 80, date: '2026-03-06', main: [2, 6, 11, 18, 23, 29, 35], bonus: [9, 31] }];
+var src7 = boot({ saved: { game: 'loto7', data: { loto6: [], loto7: EXP7 } } });
+src7.click({ 'data-act': 'export-json' });
+src7.click({ 'data-act': 'export-csv' });
+var wrongJ = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+wrongJ.pickFile(src7.downloads[0]);
+check('ロト7のJSONをロト6に入れない', rowsOf(wrongJ).loto6.length, 0);
+check('ロト7のデータだと伝える', /ロト7のデータです/.test(wrongJ.calls.join(' ')), true);
+var wrongC = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+wrongC.pickFile(src7.downloads[1]);
+check('ロト7のCSVをロト6に入れない', (wrongC.store['lotoStatsApp.v1'] ? rowsOf(wrongC).loto6.length : 0), 0);
+check('ロト7のCSVだと伝える', /ロト7のCSVです/.test(wrongC.calls.join(' ')), true);
+var ok7 = boot({ saved: { game: 'loto7', data: { loto6: [], loto7: [] } } });
+ok7.pickFile(src7.downloads[1]);
+check('ロト7のCSVはロト7に入る', rowsOf(ok7).loto7, EXP7);
+
+var bad = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+bad.pickFile(JSON.stringify([
+  { no: 301, date: null, main: [1, 2, 3, 4, 5, 44], bonus: [7] },
+  { no: 300, date: null, main: [1, 2, 3, 4, 5, 6], bonus: [6] },
+  { no: 299, date: null, main: [1, 2, 3, 4, 5, 6], bonus: [7] }
+]));
+check('範囲外・重複のある回は取り込まない', rowsOf(bad).loto6.map(function (d) { return d.no; }), [299]);
+check('読み飛ばした件を伝える', /読み飛ばし 2行/.test(bad.calls.join(' ')), true);
+var other = boot({ saved: { game: 'loto6', data: { loto6: [], loto7: [] } } });
+other.pickFile('第2139回 2026/9/21 03 06 23 34 36 43 29');
+check('書き出し以外のファイルは取り込まない', /書き出したJSON・CSVではありません/.test(other.calls.join(' ')), true);
 
 console.log('予想の作り方の説明');
 var ex = boot({ saved: { game: 'loto6', windowSize: 24, data: { loto6: SAMPLE, loto7: [] } } });
